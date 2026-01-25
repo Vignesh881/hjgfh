@@ -1,0 +1,355 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ * Export utilities for MoiBook - CSP-Safe Version with MoiReport Component Integration
+ */
+
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { Document, Packer, Paragraph, TextRun } from 'docx';
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import MoiReport from '../components/MoiReport';
+
+/**
+ * Export Professional Moi Report as Tamil PDF (Using Browser Print Dialog)
+ * Opens the full MoiReport component in a print preview window
+ * @param {Array} moiEntries - All moi entries
+ * @param {Object} event - Event details
+ * @param {string} fileName - Optional filename (without extension)
+ */
+export const exportTamilPdf = async (moiEntries, event, fileName) => {
+    try {
+        // Filter only moi entries
+        const moiOnlyEntries = moiEntries.filter(e => !e.type);
+        
+        if (moiOnlyEntries.length === 0) {
+            alert('மொய் பதிவுகள் இல்லை / No Moi entries to export');
+            return;
+        }
+        
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'pdf-loading-indicator';
+        loadingDiv.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 40px 60px;
+            border-radius: 15px;
+            font-size: 20px;
+            z-index: 10000;
+            font-family: "Noto Sans Tamil", Arial, sans-serif;
+            text-align: center;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        `;
+        loadingDiv.innerHTML = `
+            <div style="margin-bottom: 15px; font-size: 24px;">📄</div>
+            <div>PDF உருவாக்கப்படுகிறது...</div>
+            <div style="font-size: 14px; margin-top: 10px; opacity: 0.8;">Opening Print Dialog...</div>
+        `;
+        document.body.appendChild(loadingDiv);
+        
+        // Create a temporary container for MoiReport rendering
+        const printContainer = document.createElement('div');
+        printContainer.id = 'moi-report-print-container';
+        printContainer.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            z-index: 9999;
+            overflow: auto;
+            font-family: "Noto Sans Tamil", "Latha", "TAMu_Kadambri", Arial, sans-serif;
+        `;
+        document.body.appendChild(printContainer);
+        
+        // Render MoiReport component into the container
+        const root = ReactDOM.createRoot(printContainer);
+        
+        // Wait for component to render
+        await new Promise((resolve) => {
+            root.render(
+                React.createElement(MoiReport, {
+                    moiEntries: moiOnlyEntries,
+                    event: event,
+                    includeEventDetails: true,
+                    includeTableOfContents: true
+                })
+            );
+            
+            // Give React time to render
+            setTimeout(resolve, 2000);
+        });
+        
+        // Remove loading indicator
+        document.body.removeChild(loadingDiv);
+        
+        // Open browser print dialog
+        window.print();
+        
+        // Clean up after print dialog closes
+        setTimeout(() => {
+            root.unmount();
+            document.body.removeChild(printContainer);
+        }, 500);
+        
+    } catch (error) {
+        console.error('PDF export error:', error);
+        alert('PDF உருவாக்குவதில் பிழை ஏற்பட்டது: ' + error.message);
+        
+        // Clean up on error
+        const loadingDiv = document.getElementById('pdf-loading-indicator');
+        if (loadingDiv) document.body.removeChild(loadingDiv);
+        
+        const printContainer = document.getElementById('moi-report-print-container');
+        if (printContainer) document.body.removeChild(printContainer);
+    }
+};
+            <div style="margin-bottom: 15px; font-size: 24px;">📄</div>
+            <div>PDF உருவாக்கப்படுகிறது...</div>
+            <div style="font-size: 14px; margin-top: 10px; opacity: 0.8;">Creating Professional PDF...</div>
+        `;
+        document.body.appendChild(loadingDiv);
+        
+        // Create a temporary container for MoiReport rendering
+        const printContainer = document.createElement('div');
+        printContainer.id = 'moi-report-print-container';
+        printContainer.style.cssText = `
+            position: fixed;
+            top: -20000px;
+            left: -20000px;
+            width: 210mm;
+            background: white;
+            font-family: "Noto Sans Tamil", "Latha", "TAMu_Kadambri", Arial, sans-serif;
+        `;
+        document.body.appendChild(printContainer);
+        
+        // Render MoiReport component into the container
+        const root = ReactDOM.createRoot(printContainer);
+        
+        // Wait for component to render
+        await new Promise((resolve) => {
+            root.render(
+                React.createElement(MoiReport, {
+                    moiEntries: moiEntries,
+                    event: event,
+                    includeEventDetails: true,
+                    includeTableOfContents: true
+                })
+            );
+            
+            // Give React time to render - increased for large reports
+            setTimeout(resolve, 3000);
+        });
+        
+        // Wait for all pages to be fully rendered
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Get all pages from the rendered report
+        const pages = printContainer.querySelectorAll('.page');
+        
+        console.log(`📄 Found ${pages.length} pages to export`);
+        
+        if (pages.length === 0) {
+            throw new Error('No pages found to export');
+        }
+        
+        // Create PDF
+        const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4'
+        });
+        
+        // Process each page
+        for (let i = 0; i < pages.length; i++) {
+            const page = pages[i];
+            
+            // Make page visible temporarily for rendering
+            page.style.position = 'relative';
+            page.style.visibility = 'visible';
+            
+            // Convert page to canvas - use actual page dimensions
+            const canvas = await html2canvas(page, {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                backgroundColor: '#ffffff',
+                windowWidth: page.scrollWidth,
+                windowHeight: page.scrollHeight
+            });
+            
+            const imgData = canvas.toDataURL('image/png');
+            const imgWidth = 210; // A4 width in mm
+            const imgHeight = 297; // A4 height in mm
+            
+            if (i > 0) {
+                pdf.addPage();
+            }
+            
+            pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+            
+            // Update loading message
+            loadingDiv.innerHTML = `
+                <div style="margin-bottom: 15px; font-size: 24px;">📄</div>
+                <div>PDF உருவாக்கப்படுகிறது...</div>
+                <div style="font-size: 14px; margin-top: 10px; opacity: 0.8;">Processing page ${i + 1} of ${pages.length}...</div>
+            `;
+        }
+        
+        // Clean up
+        root.unmount();
+        document.body.removeChild(printContainer);
+        document.body.removeChild(loadingDiv);
+        
+        // Save PDF with custom filename
+        const pdfFileName = fileName ? `${fileName}.pdf` : 'MoiReport.pdf';
+        pdf.save(pdfFileName);
+        
+        console.log(`✅ Professional PDF exported successfully as: ${pdfFileName}`);
+        
+        // Show success message
+        alert(`✅ PDF சேமிக்கப்பட்டது!\n\n${pdfFileName}\n\n${pages.length} pages exported successfully!`);
+        
+    } catch (error) {
+        console.error('PDF export error:', error);
+        
+        // Clean up on error
+        const loadingDiv = document.getElementById('pdf-loading-indicator');
+        const printContainer = document.getElementById('moi-report-print-container');
+        if (loadingDiv) document.body.removeChild(loadingDiv);
+        if (printContainer) document.body.removeChild(printContainer);
+        
+        alert('PDF உருவாக்கம் தோல்வியடைந்தது / PDF export failed: ' + error.message);
+    }
+};
+
+/**
+ * Export Town-based PDF Report (Uses same MoiReport component)
+ */
+export const exportTownBasedPdf = async (moiEntries, event, fileName) => {
+    return exportTamilPdf(moiEntries, event, fileName);
+};
+
+/**
+ * Export to Excel with Tamil support
+ */
+export const exportToExcel = (entries, event, fileName) => {
+    try {
+        const moiOnlyEntries = entries.filter(e => !e.type);
+        
+        if (moiOnlyEntries.length === 0) {
+            alert('மொய் பதிவுகள் இல்லை / No Moi entries to export');
+            return;
+        }
+        
+        // Prepare data for export
+        const data = moiOnlyEntries.map((entry, index) => ({
+            'வரிசை எண்': index + 1,
+            'ஊர்': entry.town || '',
+            'தெரு/ இருப்பு': entry.street || '',
+            'பெயர்': `${entry.relationship || ''} ${entry.name || ''}${entry.isMaternalUncle ? ' (*)' : ''}`.trim(),
+            'கல்வி': entry.education || '',
+            'தொழில்': entry.profession || '',
+            'தொலைபேசி': entry.phone || '',
+            'தொகை': entry.amount || 0,
+            'குறிப்பு': entry.note || ''
+        }));
+        
+        // Create workbook
+        const wb = XLSX.utils.book_new();
+        const ws = XLSX.utils.json_to_sheet(data);
+        
+        // Set column widths
+        ws['!cols'] = [
+            { wch: 10 }, // வரிசை எண்
+            { wch: 15 }, // ஊர்
+            { wch: 15 }, // தெரு
+            { wch: 25 }, // பெயர்
+            { wch: 15 }, // கல்வி
+            { wch: 15 }, // தொழில்
+            { wch: 15 }, // தொலைபேசி
+            { wch: 12 }, // தொகை
+            { wch: 30 }  // குறிப்பு
+        ];
+        
+        XLSX.utils.book_append_sheet(wb, ws, 'மொய் பதிவுகள்');
+        
+        // Generate filename
+        const excelFileName = fileName ? `${fileName}.xlsx` : 'MoiReport.xlsx';
+        
+        // Save file
+        XLSX.writeFile(wb, excelFileName);
+        
+        console.log(`✅ Excel exported successfully as: ${excelFileName}`);
+        
+    } catch (error) {
+        console.error('Excel export error:', error);
+        alert('Excel உருவாக்கம் தோல்வியடைந்தது / Excel export failed');
+    }
+};
+
+/**
+ * Export Tamil Word Document
+ */
+export const exportTamilWord = async (entries, event, fileName) => {
+    const moiOnlyEntries = entries.filter(e => !e.type);
+    
+    try {
+        // Create simple Word document with Tamil content
+        const doc = new Document({
+            sections: [{
+                children: [
+                    new Paragraph({
+                        children: [
+                            new TextRun({
+                                text: "மொய் புத்தக அறிக்கை",
+                                bold: true,
+                                size: 32
+                            }),
+                        ],
+                        alignment: 'center',
+                        spacing: { after: 400 }
+                    }),
+                    new Paragraph({
+                        children: [
+                            new TextRun({
+                                text: `நிகழ்வு: ${event.eventName || 'நிகழ்வு பெயர்'}`,
+                                size: 24
+                            }),
+                        ],
+                        spacing: { after: 200 }
+                    }),
+                ]
+            }]
+        });
+        
+        const buffer = await Packer.toBuffer(doc);
+        const blob = new Blob([buffer], { 
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' 
+        });
+        
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName ? `${fileName}.docx` : 'MoiReport.docx';
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        
+        console.log('Tamil Word document exported successfully');
+        
+    } catch (error) {
+        console.error('Tamil Word export failed:', error);
+        alert('Word document export failed. Please try again.');
+    }
+};

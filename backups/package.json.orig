@@ -1,0 +1,25 @@
+{
+  "name": "moibook2025",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "postinstall": "copyfiles -u 1 node_modules/sql.js/dist/sql-wasm.wasm public",
+    "server": "node server/server.js",
+    "static-proxy": "node server/proxyServer.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "mysql2": "^3.15.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-scripts": "^5.0.1"
+  },
+  "devDependencies": {
+    "copyfiles": "^2.4.1",
+    "typescript": "^5.4.5"
+  }
+}

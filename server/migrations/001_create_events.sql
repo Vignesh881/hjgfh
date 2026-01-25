@@ -1,0 +1,6 @@
+CREATE TABLE events (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  event_name VARCHAR(255) NOT NULL,
+  event_date DATE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;

@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="ta">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MoiBook Icon Generator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #1976D2;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        h2 {
+            color: #4CAF50;
+            text-align: center;
+            margin-top: 0;
+            font-size: 1.2rem;
+        }
+        .preview {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+            margin: 30px 0;
+            flex-wrap: wrap;
+        }
+        .icon-preview {
+            text-align: center;
+        }
+        canvas {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .size-label {
+            margin-top: 10px;
+            font-weight: bold;
+            color: #666;
+        }
+        .buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+        button {
+            padding: 12px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .download-btn {
+            background: linear-gradient(135deg, #4CAF50, #2E7D32);
+            color: white;
+        }
+        .download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(76, 175, 80, 0.4);
+        }
+        .copy-btn {
+            background: linear-gradient(135deg, #2196F3, #1565C0);
+            color: white;
+        }
+        .copy-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(33, 150, 243, 0.4);
+        }
+        .instructions {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 30px;
+            border-left: 4px solid #4CAF50;
+        }
+        .instructions h3 {
+            color: #1976D2;
+            margin-top: 0;
+        }
+        .instructions ol {
+            line-height: 1.8;
+        }
+        .instructions code {
+            background: #e3f2fd;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            color: #1565C0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏦 MoiBook Desktop Icon Generator</h1>
+        <h2>மொய் புத்தகம் - Desktop Shortcut Icon</h2>
+        
+        <div class="preview">
+            <div class="icon-preview">
+                <canvas id="icon256" width="256" height="256"></canvas>
+                <div class="size-label">256x256 (High Quality)</div>
+            </div>
+            <div class="icon-preview">
+                <canvas id="icon128" width="128" height="128"></canvas>
+                <div class="size-label">128x128 (Medium)</div>
+            </div>
+            <div class="icon-preview">
+                <canvas id="icon64" width="64" height="64"></canvas>
+                <div class="size-label">64x64 (Standard)</div>
+            </div>
+            <div class="icon-preview">
+                <canvas id="icon32" width="32" height="32"></canvas>
+                <div class="size-label">32x32 (Small)</div>
+            </div>
+        </div>
+
+        <div class="buttons">
+            <button class="download-btn" onclick="downloadAllSizes()">📥 Download All Icons</button>
+            <button class="copy-btn" onclick="copyToClipboard()">📋 Copy 256x256 Icon</button>
+        </div>
+
+        <div class="instructions">
+            <h3>📝 Desktop Shortcut எப்படி உருவாக்குவது:</h3>
+            <ol>
+                <li><strong>Icon Download:</strong> மேலே உள்ள "Download All Icons" button click செய்யவும்</li>
+                <li><strong>Icon Save:</strong> <code>moibook-icon-256.png</code> file save ஆகும்</li>
+                <li><strong>Shortcut Create:</strong> Desktop-ல் right-click → New → Shortcut</li>
+                <li><strong>Location:</strong> Browse செய்து <code>START_MOIBOOK_APP.bat</code> select செய்யவும்</li>
+                <li><strong>Name:</strong> "MoiBook 2025 - மொய் புத்தகம்" என்று name கொடுக்கவும்</li>
+                <li><strong>Icon Change:</strong> Shortcut-ல் right-click → Properties → Change Icon</li>
+                <li><strong>Browse Icon:</strong> Download செய்த <code>moibook-icon-256.png</code> select செய்யவும்</li>
+                <li><strong>Done:</strong> Apply → OK → Desktop shortcut ready! 🎉</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        function generateIcon(size) {
+            const canvas = document.getElementById(`icon${size}`);
+            const ctx = canvas.getContext('2d');
+            
+            // Clear background
+            ctx.clearRect(0, 0, size, size);
+            
+            // White background with subtle gradient
+            const bgGradient = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+            bgGradient.addColorStop(0, '#ffffff');
+            bgGradient.addColorStop(1, '#f8f9fa');
+            ctx.fillStyle = bgGradient;
+            ctx.fillRect(0, 0, size, size);
+            
+            // Money note (green, top)
+            ctx.save();
+            ctx.translate(size/2, size * 0.28);
+            ctx.rotate(-0.15); // Slight rotation for dynamic look
+            
+            // Green money note with gradient
+            const gradient1 = ctx.createLinearGradient(-size*0.35, -size*0.1, size*0.35, size*0.1);
+            gradient1.addColorStop(0, '#4CAF50');
+            gradient1.addColorStop(0.5, '#66BB6A');
+            gradient1.addColorStop(1, '#2E7D32');
+            ctx.fillStyle = gradient1;
+            ctx.shadowColor = 'rgba(0,0,0,0.3)';
+            ctx.shadowBlur = size * 0.05;
+            ctx.shadowOffsetY = size * 0.02;
+            ctx.fillRect(-size*0.35, -size*0.1, size*0.7, size*0.2);
+            
+            // Rupee symbol on money note
+            ctx.shadowColor = 'transparent';
+            ctx.fillStyle = 'white';
+            ctx.font = `bold ${size*0.15}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('₹', 0, 0);
+            
+            ctx.restore();
+            
+            // Open book (blue, bottom)
+            const bookY = size * 0.50;
+            const bookWidth = size * 0.65;
+            const bookHeight = size * 0.38;
+            
+            // Book shadow
+            ctx.fillStyle = 'rgba(0,0,0,0.15)';
+            ctx.fillRect(size/2 - bookWidth/2 + size*0.02, bookY + size*0.02, bookWidth, bookHeight);
+            
+            // Left page
+            const gradient2 = ctx.createLinearGradient(size/2 - bookWidth/2, bookY, size/2, bookY + bookHeight);
+            gradient2.addColorStop(0, '#1976D2');
+            gradient2.addColorStop(1, '#1565C0');
+            ctx.fillStyle = gradient2;
+            ctx.fillRect(size/2 - bookWidth/2, bookY, bookWidth/2 - 2, bookHeight);
+            
+            // Right page
+            const gradient3 = ctx.createLinearGradient(size/2, bookY, size/2 + bookWidth/2, bookY + bookHeight);
+            gradient3.addColorStop(0, '#2196F3');
+            gradient3.addColorStop(1, '#1976D2');
+            ctx.fillStyle = gradient3;
+            ctx.fillRect(size/2 + 2, bookY, bookWidth/2, bookHeight);
+            
+            // Book spine (darker)
+            ctx.fillStyle = '#0D47A1';
+            ctx.fillRect(size/2 - 2, bookY, 4, bookHeight);
+            
+            // Book pages detail (horizontal lines)
+            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+            ctx.lineWidth = 1;
+            for (let i = 1; i <= 3; i++) {
+                const y = bookY + (bookHeight * i / 4);
+                ctx.beginPath();
+                ctx.moveTo(size/2 - bookWidth/2 + size*0.05, y);
+                ctx.lineTo(size/2 - size*0.02, y);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(size/2 + size*0.02, y);
+                ctx.lineTo(size/2 + bookWidth/2 - size*0.05, y);
+                ctx.stroke();
+            }
+            
+            // Tamil text "மொய்" at bottom (enhanced)
+            ctx.fillStyle = '#4CAF50';
+            ctx.font = `bold ${size*0.18}px Arial, 'Noto Sans Tamil'`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.shadowColor = 'rgba(0,0,0,0.2)';
+            ctx.shadowBlur = size * 0.02;
+            ctx.fillText('மொய்', size/2, size * 0.96);
+            
+            return canvas;
+        }
+
+        function downloadCanvas(canvas, filename) {
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        }
+
+        function downloadAllSizes() {
+            const sizes = [256, 128, 64, 32];
+            sizes.forEach(size => {
+                const canvas = document.getElementById(`icon${size}`);
+                setTimeout(() => {
+                    downloadCanvas(canvas, `moibook-icon-${size}.png`);
+                }, size); // Stagger downloads
+            });
+            alert('✅ அனைத்து icons-உம் download ஆகின்றன!\n\n256x256 icon-ஐ desktop shortcut-க்கு use செய்யவும்.');
+        }
+
+        function copyToClipboard() {
+            const canvas = document.getElementById('icon256');
+            canvas.toBlob(blob => {
+                const item = new ClipboardItem({ 'image/png': blob });
+                navigator.clipboard.write([item]).then(() => {
+                    alert('✅ Icon clipboard-ல் copy செய்யப்பட்டது!\n\nPaint-ல் paste செய்து save செய்யலாம்.');
+                }).catch(err => {
+                    alert('❌ Copy failed. Download button-ஐ use செய்யவும்.');
+                });
+            });
+        }
+
+        // Generate all sizes on load
+        window.onload = function() {
+            [256, 128, 64, 32].forEach(generateIcon);
+        };
+    </script>
+</body>
+</html>

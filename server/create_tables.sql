@@ -1,0 +1,31 @@
+-- MoiBook2025 MySQL Table Structure
+
+CREATE TABLE events (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  event_name VARCHAR(255) NOT NULL,
+  event_date DATE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE moi_entries (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  event_id INT,
+  contributor_name VARCHAR(255),
+  amount DECIMAL(10,2),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (event_id) REFERENCES events(id)
+);
+
+CREATE TABLE members (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  phone VARCHAR(20),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE registrars (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  designation VARCHAR(100),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

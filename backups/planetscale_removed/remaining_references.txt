@@ -1,0 +1,14 @@
+Remaining PlanetScale references found by grep:
+
+- .github/copilot-instructions.md (documentation mentions)
+- PLANETSCALE_IMPLEMENTATION_COMPLETE.md (historical doc)
+- package.broken.json, package.fixed.json, package.fixed2.json (copies of package manifests)
+- MoiBook2025_Portable/* (portable build contains package.json and package-lock with @planetscale)
+- portable/build/static/js/*.js.map (bundles reference @planetscale/database files and lib/planetscaleAdapter.js in source maps)
+- portable/build/static/js/*.js (built assets may include references in source maps)
+- package-lock.json (may still reference @planetscale/database)
+- test_database_manager.js (updated)
+
+Notes:
+- The files under 'portable/' are build artifacts and can be removed or regenerated after installing dependencies and rebuilding.
+- Historical docs mentioning PlanetScale were left unchanged; they are safe to keep for context but can be edited if you want them removed.

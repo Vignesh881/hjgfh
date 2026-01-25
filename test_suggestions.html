@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Suggestions Data</title>
+    <meta charset="UTF-8">
+</head>
+<body>
+    <h1>Add Test Data for Town Usage Count</h1>
+    <button onclick="addTestData()">Add Test Data</button>
+    <button onclick="clearData()">Clear Data</button>
+    <button onclick="showData()">Show Current Data</button>
+    <pre id="output"></pre>
+
+    <script>
+        function addTestData() {
+            const testData = {
+                'மதுரை-ஆரப்பாளையம்': 5,
+                'திண்டுக்கல்-மொழிபாளையம்': 4,
+                'கோயம்புத்தூர்-பொள்ளாச்சி': 3,
+                'சென்னை-தாம்பரம்': 4,
+                'ஈரோடு-பெருந்துறை': 3
+            };
+            
+            localStorage.setItem('townUsageCount', JSON.stringify(testData));
+            alert('✅ Test data added! Open the app and check the guide modal.');
+            showData();
+        }
+
+        function clearData() {
+            localStorage.removeItem('townUsageCount');
+            alert('🗑️ Data cleared!');
+            showData();
+        }
+
+        function showData() {
+            const data = localStorage.getItem('townUsageCount');
+            document.getElementById('output').textContent = data ? 
+                JSON.stringify(JSON.parse(data), null, 2) : 
+                'No data found';
+        }
+
+        // Show data on load
+        showData();
+    </script>
+</body>
+</html>

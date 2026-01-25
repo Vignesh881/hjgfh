@@ -1,0 +1,53 @@
+{
+  "name": "moibook2025",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "postinstall": "copyfiles -u 1 node_modules/sql.js/dist/sql-wasm.wasm public",
+    "server": "node server/server.js",
+    "static-proxy": "node server/proxyServer.js",
+    "test-planetscale": "node test-planetscale.js"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "cors": "^2.8.5",
+    "docx": "^9.5.1",
+    "express": "^5.1.0",
+    "html-to-image": "^1.11.13",
+    "html2canvas": "^1.4.1",
+    "html5-qrcode": "^2.3.8",
+    "immer": "^10.1.1",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.2",
+    "lodash.shuffle": "^4.2.0",
+    "multer": "^2.0.2",
+    "mysql2": "^3.15.3",
+    "p-limit": "^5.0.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-scripts": "^5.0.1",
+    "react-syntax-highlighter": "^15.5.0",
+    "sql.js": "^1.10.3",
+    "sqlite3": "^5.1.7",
+    "xlsx": "^0.18.5",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@types/lodash.shuffle": "^4.2.9",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "copyfiles": "^2.4.1",
+    "typescript": "4.9.5"
+  },
+  "browserslist": [
+    ">0.2%",
+    "not dead",
+    "not op_mini all"
+  ]
+}

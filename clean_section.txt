@@ -1,0 +1,10 @@
+                        <div style={styles.hostLocation}>
+                            {event?.organizerLocation || 'கரிமேடு'}.
+                        </div>
+                    </div>
+
+                    {/* Decorative Floral Elements */}
+                    <div style={styles.floralLeft}>🌸🌿</div>
+                    <div style={styles.floralRight}>🌿🌸</div>
+                </div>
+            </div>
