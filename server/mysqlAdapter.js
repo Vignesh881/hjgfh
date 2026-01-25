@@ -19,19 +19,34 @@ class MySQLAdapter {
     const password = process.env.MYSQL_PASSWORD;
     const database = process.env.MYSQL_DATABASE;
     const port = process.env.MYSQL_PORT ? parseInt(process.env.MYSQL_PORT, 10) : 3306;
-    const ca = fs.readFileSync(path.join(__dirname, '../cacert.pem'), 'utf8');
+    const caBundlePath = path.join(__dirname, '../cacert.pem');
+    const sslCaPath = process.env.MYSQL_SSL_CA_PATH;
+    const sslCaEnv = process.env.MYSQL_SSL_CA;
+    const sslMode = (process.env.MYSQL_SSL || '').toLowerCase();
+    const resolvedCa = (() => {
+      if (sslCaPath && fs.existsSync(sslCaPath)) {
+        return fs.readFileSync(sslCaPath, 'utf8');
+      }
+      if (sslCaEnv) {
+        return sslCaEnv.replace(/\\n/g, '\n');
+      }
+      if (fs.existsSync(caBundlePath)) {
+        return fs.readFileSync(caBundlePath, 'utf8');
+      }
+      return undefined;
+    })();
+    const shouldUseSsl = !!resolvedCa || sslMode === 'true' || sslMode === '1' || /psdb\.cloud$/i.test(host || '');
     this.connection = await mysql.createConnection({
       host,
       user,
       password,
       database,
       port,
-      ssl: {
-        ca,
-        rejectUnauthorized: true
-      }
+      ssl: shouldUseSsl
+        ? (resolvedCa ? { ca: resolvedCa, rejectUnauthorized: true } : { rejectUnauthorized: true })
+        : undefined
     });
-    console.log('Connected to Planetscale using Mozilla cacert.pem');
+    console.log('Connected to MySQL with SSL:', shouldUseSsl);
     return true;
   }
   async disconnect() {

@@ -28,18 +28,32 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 // Do NOT use 'localhost' for production multi-location use. Set MYSQL_HOST to your central server/Planetscale host.
 const caBundlePath = path.join(__dirname, '..', 'cacert.pem');
 const caBundle = fsSync.existsSync(caBundlePath) ? fsSync.readFileSync(caBundlePath, 'utf8') : undefined;
+const sslCaPath = process.env.MYSQL_SSL_CA_PATH;
+const sslCaEnv = process.env.MYSQL_SSL_CA;
+const sslMode = (process.env.MYSQL_SSL || '').toLowerCase();
+const resolvedCa = (() => {
+  if (sslCaPath && fsSync.existsSync(sslCaPath)) {
+    return fsSync.readFileSync(sslCaPath, 'utf8');
+  }
+  if (sslCaEnv) {
+    return sslCaEnv.replace(/\\n/g, '\n');
+  }
+  return caBundle;
+})();
+const hostName = process.env.MYSQL_HOST || 'localhost';
+const shouldUseSsl = !!resolvedCa || sslMode === 'true' || sslMode === '1' || /psdb\.cloud$/i.test(hostName);
+const sslOptions = shouldUseSsl
+  ? resolvedCa
+    ? { ca: resolvedCa, rejectUnauthorized: true }
+    : { rejectUnauthorized: true }
+  : undefined;
 const pool = mysql.createPool({
-  host: process.env.MYSQL_HOST || 'localhost',
+  host: hostName,
   user: process.env.MYSQL_USER || 'root',
   password: process.env.MYSQL_PASSWORD || '',
   database: process.env.MYSQL_DATABASE || 'moibook_db',
   port: process.env.MYSQL_PORT ? parseInt(process.env.MYSQL_PORT, 10) : 3306,
-  ssl: caBundle
-    ? {
-        ca: caBundle,
-        rejectUnauthorized: true
-      }
-    : undefined,
+  ssl: sslOptions,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
