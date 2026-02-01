@@ -18,6 +18,37 @@ export default function ExpenseModal({ event, onSave, onClose, updatePinUsage })
         amountInputRef.current?.focus();
     }, []);
 
+    const normalizePin = (value) => String(value ?? '').trim();
+    const getApprovalPins = () => {
+        const raw = event?.approvalPins;
+        if (Array.isArray(raw)) return raw;
+        if (typeof raw === 'string') {
+            return raw.split(',').map(p => p.trim()).filter(Boolean);
+        }
+        return [];
+    };
+    const validatePinOnce = (pinValue) => {
+        const pinInput = normalizePin(pinValue);
+        let found = false;
+        let used = false;
+        getApprovalPins().forEach(p => {
+            const pinNumber = typeof p === 'string' ? p : p.pin;
+            if (normalizePin(pinNumber) === pinInput) {
+                found = true;
+                if (typeof p === 'object' && p.used) {
+                    used = true;
+                }
+            }
+        });
+        if (!found) {
+            return { ok: false, message: 'தவறான அனுமதி PIN.' };
+        }
+        if (used) {
+            return { ok: false, message: 'இந்த அனுமதி PIN ஏற்கனவே பயன்படுத்தப்பட்டது.' };
+        }
+        return { ok: true };
+    };
+
     const handleCountChange = (note, value) => {
         const count = value.replace(/[^0-9]/g, '');
         setDenominations(prev => ({...prev, [note]: count}));
@@ -44,13 +75,9 @@ export default function ExpenseModal({ event, onSave, onClose, updatePinUsage })
         }
         
         // Check PIN validity (handle both string and object formats)
-        const validPin = event.approvalPins?.some(p => {
-            const pinNumber = typeof p === 'string' ? p : p.pin;
-            return pinNumber === pin;
-        });
-        
-        if (!validPin) {
-            alert('தவறான அனுமதி PIN.');
+        const pinCheck = validatePinOnce(pin);
+        if (!pinCheck.ok) {
+            alert(pinCheck.message);
             return;
         }
         if (!isMatch) {

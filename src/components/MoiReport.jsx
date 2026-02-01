@@ -49,7 +49,7 @@ if (typeof document !== 'undefined') {
     }
 }
 
-const MoiReport = ({ moiEntries, event, includeEventDetails = true, includeTableOfContents = true }) => {
+const MoiReport = ({ moiEntries, event, settings, includeEventDetails = true, includeTableOfContents = true }) => {
     // Filter only moi entries (exclude expenses)
     const moiOnlyEntries = moiEntries.filter(e => !e.type);
     
@@ -75,7 +75,36 @@ const MoiReport = ({ moiEntries, event, includeEventDetails = true, includeTable
     // Sort towns alphabetically in Tamil
     const sortedTowns = Object.keys(townGroups).sort((a, b) => a.localeCompare(b, 'ta'));
     
-    return renderProfessionalReport(moiOnlyEntries, maternalUncleEntries, townGroups, sortedTowns, event, includeEventDetails, includeTableOfContents);
+    return renderProfessionalReport(moiOnlyEntries, maternalUncleEntries, townGroups, sortedTowns, event, settings, includeEventDetails, includeTableOfContents);
+};
+
+const getOrganizationInfo = (event, settings) => {
+    const settingsAddress = settings?.billHeaderAddress || '';
+    const settingsPhone = settings?.billHeaderPhone || '';
+
+    let orgAddress = settingsAddress || '';
+    let orgPhone = settingsPhone || '';
+
+    if (orgAddress || orgPhone) {
+        return { orgAddress, orgPhone };
+    }
+
+    if (typeof window === 'undefined' || !window.localStorage) {
+        return { orgAddress: '', orgPhone: '' };
+    }
+
+    try {
+        const raw = window.localStorage.getItem('moibook_settings');
+        if (!raw) {
+            return { orgAddress: '', orgPhone: '' };
+        }
+        const savedSettings = JSON.parse(raw);
+        orgAddress = savedSettings?.billHeaderAddress || '';
+        orgPhone = savedSettings?.billHeaderPhone || '';
+        return { orgAddress, orgPhone };
+    } catch (err) {
+        return { orgAddress: '', orgPhone: '' };
+    }
 };
 
 const renderEmptyState = (event) => {
@@ -102,7 +131,7 @@ const renderEmptyState = (event) => {
     );
 };
 
-const renderProfessionalReport = (moiOnlyEntries, maternalUncleEntries, townGroups, sortedTowns, event, includeEventDetails, includeTableOfContents) => {
+const renderProfessionalReport = (moiOnlyEntries, maternalUncleEntries, townGroups, sortedTowns, event, settings, includeEventDetails, includeTableOfContents) => {
     const styles = getEnhancedStyles();
     
     // Calculate comprehensive statistics
@@ -122,15 +151,7 @@ const renderProfessionalReport = (moiOnlyEntries, maternalUncleEntries, townGrou
                             <div style={styles.centerOrgText}>
                                 <div style={styles.centerMainTitle}>மொய்புக்</div>
                                 {(() => {
-                                    const orgAddress = event?.organizationAddress
-                                        || event?.organization_address
-                                        || event?.orgAddress
-                                        || event?.address
-                                        || '';
-                                    const orgPhone = event?.organizationPhone
-                                        || event?.organization_phone
-                                        || event?.orgPhone
-                                        || '';
+                                    const { orgAddress, orgPhone } = getOrganizationInfo(event, settings);
                                     return (
                                         <>
                                             {orgAddress ? <div style={styles.orgSubText}>{orgAddress}</div> : null}

@@ -1,6 +1,7 @@
 CREATE TABLE moi_entries (
   id INT AUTO_INCREMENT PRIMARY KEY,
   event_id INT,
+  serial_no INT,
   contributor_name VARCHAR(255),
   amount DECIMAL(10,2),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

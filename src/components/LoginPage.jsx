@@ -80,6 +80,28 @@ export default function LoginPage({ onLoginSuccess }) {
     setPassword('');
   };
 
+  const handleExitFullscreen = () => {
+    try {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+        return;
+      }
+      if (document.webkitFullscreenElement && document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  const handleMinimize = () => {
+    try {
+      window.blur();
+    } catch (err) {
+      // ignore
+    }
+  };
+
   const isLocalhost = /localhost|127\.0\.0\.1/i.test(qrUrl);
 
   useEffect(() => {
@@ -166,6 +188,13 @@ export default function LoginPage({ onLoginSuccess }) {
           </div>
           <div className="button-group" style={{ marginTop: '0.75rem' }}>
             <button type="button" className="button" onClick={() => setShowQrModal(true)}>📱 மொபைல் QR</button>
+          </div>
+          <div className="button-group" style={{ marginTop: '0.5rem' }}>
+            <button type="button" className="button" onClick={handleExitFullscreen}>Exit Full Screen</button>
+            <button type="button" className="button" onClick={handleMinimize}>Minimize</button>
+          </div>
+          <div style={{ marginTop: '0.35rem', fontSize: '0.85rem', color: '#666' }}>
+            Minimize: Taskbar‑ல் minimize செய்யவும்.
           </div>
         </form>
       </main>

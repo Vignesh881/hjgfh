@@ -19,7 +19,7 @@ import MoiReport from '../components/MoiReport';
  * @param {Object} event - Event details
  * @param {string} fileName - Optional filename (without extension)
  */
-export const exportTamilPdf = async (moiEntries, event, fileName) => {
+export const exportTamilPdf = async (moiEntries, event, fileName, settings) => {
     try {
         // Filter only moi entries
         const moiOnlyEntries = moiEntries.filter(e => !e.type);
@@ -76,6 +76,7 @@ export const exportTamilPdf = async (moiEntries, event, fileName) => {
                 React.createElement(MoiReport, {
                     moiEntries: moiOnlyEntries,
                     event: event,
+                    settings: settings,
                     includeEventDetails: true,
                     includeTableOfContents: true
                 })
@@ -189,7 +190,7 @@ export const exportTamilPdf = async (moiEntries, event, fileName) => {
  * Generate Moi Report PDF as Blob for sharing
  * @returns {Promise<{blob: Blob, fileName: string, pageCount: number}>}
  */
-export const exportTamilPdfForShare = async (moiEntries, event, fileName) => {
+export const exportTamilPdfForShare = async (moiEntries, event, fileName, settings) => {
     try {
         const moiOnlyEntries = moiEntries.filter(e => !e.type);
 
@@ -241,6 +242,7 @@ export const exportTamilPdfForShare = async (moiEntries, event, fileName) => {
                 React.createElement(MoiReport, {
                     moiEntries: moiOnlyEntries,
                     event: event,
+                    settings: settings,
                     includeEventDetails: true,
                     includeTableOfContents: true
                 })
@@ -337,8 +339,8 @@ export const exportTamilPdfForShare = async (moiEntries, event, fileName) => {
 /**
  * Export Town-based PDF Report (Uses same MoiReport component)
  */
-export const exportTownBasedPdf = async (moiEntries, event, fileName) => {
-    return exportTamilPdf(moiEntries, event, fileName);
+export const exportTownBasedPdf = async (moiEntries, event, fileName, settings) => {
+    return exportTamilPdf(moiEntries, event, fileName, settings);
 };
 
 /**

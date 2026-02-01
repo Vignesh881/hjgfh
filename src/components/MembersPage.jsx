@@ -6,6 +6,7 @@ import { useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { toPng } from 'html-to-image';
 import { MoiBookIcon } from './MoiBookLogo';
+import { loadSettings } from '../lib/localStorage';
 
 const initialFormData = {
     memberCode: '',
@@ -25,6 +26,9 @@ const initialFormData = {
 };
 
 export default function MembersPage({ members, addOrUpdateMember, deleteMember, togglePermission, onBack }) {
+    const settings = loadSettings ? loadSettings() : {};
+    const orgAddress = settings?.billHeaderAddress || '';
+    const orgPhone = settings?.billHeaderPhone || '';
     const [formData, setFormData] = useState(initialFormData);
     const [editingId, setEditingId] = useState(null);
     const [cardState, setCardState] = useState(null);
@@ -260,10 +264,17 @@ export default function MembersPage({ members, addOrUpdateMember, deleteMember, 
                 <div className="member-idcard-export" aria-hidden="true">
                     <div className="member-idcard" ref={cardRef}>
                         <div className="member-idcard-header">
-                            <MoiBookIcon size={24} />
-                            <div>
-                                <div className="member-idcard-title">MoiBook Member ID</div>
-                                <div className="member-idcard-code">{normalizeMember(cardState.member).memberCode}</div>
+                            <div className="member-idcard-header-left">
+                                <MoiBookIcon size={24} />
+                                <div>
+                                    <div className="member-idcard-title">MoiBook Member ID</div>
+                                    <div className="member-idcard-code">{normalizeMember(cardState.member).memberCode}</div>
+                                </div>
+                            </div>
+                            <div className="member-idcard-org">
+                                <div className="member-idcard-org-title">நிறுவனம்</div>
+                                <div className="member-idcard-org-row">🏢 {orgAddress || '-'}</div>
+                                <div className="member-idcard-org-row">📞 {orgPhone || '-'}</div>
                             </div>
                         </div>
                         <div className="member-idcard-body">
@@ -281,7 +292,9 @@ export default function MembersPage({ members, addOrUpdateMember, deleteMember, 
                             </div>
                         </div>
                         <div className="member-idcard-footer">
-                            QR Code: {normalizeMember(cardState.member).memberCode}
+                            <div className="member-idcard-qr-text">
+                                QR Code: {normalizeMember(cardState.member).memberCode}
+                            </div>
                         </div>
                     </div>
                 </div>

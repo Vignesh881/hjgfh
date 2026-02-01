@@ -7,6 +7,13 @@ import PosBill from './PosBill_clean';
 import databaseManager from '../lib/databaseManager';
 import * as storage from '../lib/localStorage';
 
+const DEFAULT_API_URL = (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL)
+    ? process.env.REACT_APP_API_URL
+    : 'https://hjgfh.onrender.com/api';
+const DEFAULT_CLOUD_URL = (typeof process !== 'undefined' && process.env && process.env.REACT_APP_CLOUD_URL)
+    ? process.env.REACT_APP_CLOUD_URL
+    : DEFAULT_API_URL;
+
 // A reusable searchable dropdown component
 const SearchableDropdown = ({ options, value, onChange, placeholder, filterOn }) => {
     const [query, setQuery] = useState('');
@@ -86,9 +93,9 @@ export default function SettingsPage({ events, registrars, settings, setSettings
     // Cloud settings
     const [cloudUrl, setCloudUrl] = useState(() => {
         try {
-            return localStorage.getItem('moibook_cloud_url') || '';
+            return localStorage.getItem('moibook_cloud_url') || DEFAULT_CLOUD_URL;
         } catch (e) {
-            return '';
+            return DEFAULT_CLOUD_URL;
         }
     });
     const [cloudStatus, setCloudStatus] = useState('Not Connected');
@@ -96,7 +103,15 @@ export default function SettingsPage({ events, registrars, settings, setSettings
 
     // Printers (use state so we can refresh from backend if available)
     const [printers, setPrinters] = useState(() => ['Microsoft Print to PDF']);
+    const [printerStatus, setPrinterStatus] = useState('');
     const drivers = ['C:', 'D:', 'E: (Backup)'];
+    const LOCAL_PRINTER_API_URL = 'http://localhost:3001/api';
+    const normalizePrinterList = (payload) => {
+        if (Array.isArray(payload)) return payload;
+        if (payload && Array.isArray(payload.value)) return payload.value;
+        if (payload && Array.isArray(payload.printers)) return payload.printers;
+        return [];
+    };
 
     const resolveInitialApiUrl = () => {
         try {
@@ -110,21 +125,21 @@ export default function SettingsPage({ events, registrars, settings, setSettings
             console.warn('Failed to resolve API base from databaseManager:', err);
         }
         const stored = localStorage.getItem('moibook_api_url');
-        return stored ? stored.replace(/\/$/, '') : 'http://localhost:3001/api';
+        return stored ? stored.replace(/\/$/, '') : DEFAULT_API_URL;
     };
 
     const [apiUrl, setApiUrl] = useState(resolveInitialApiUrl);
     const [apiStatus, setApiStatus] = useState('');
-    const [isForceSyncing, setIsForceSyncing] = useState(false);
     
     const handleConfirm = async (section) => {
         await setSettings(localSettings);
         
-        let message = 'அமைப்புகள் சேமிக்கப்பட்டன!';
-        if (section === 'defaultEvent') message = 'விழா தேர்வு சேமிக்கப்பட்டது!';
-        else if (section === 'registrarAssignments') message = 'பதிவாளர் தேர்வு சேமிக்கப்பட்டது!';
-        else if (section === 'printerAssignments') message = 'அச்சுப்பொறி தேர்வு சேமிக்கப்பட்டது!';
-        else if (section === 'storage') message = 'சேமிப்புக்களன் தேர்வு சேமிக்கப்பட்டது!';
+    let message = 'அமைப்புகள் சேமிக்கப்பட்டன!';
+    if (section === 'defaultEvent') message = 'விழா தேர்வு சேமிக்கப்பட்டது!';
+    else if (section === 'registrarAssignments') message = 'பதிவாளர் தேர்வு சேமிக்கப்பட்டது!';
+    else if (section === 'printerAssignments') message = 'அச்சுப்பொறி தேர்வு சேமிக்கப்பட்டது!';
+    else if (section === 'billHeader') message = 'பில் header விவரம் சேமிக்கப்பட்டது!';
+    else if (section === 'storage') message = 'சேமிப்புக்களன் தேர்வு சேமிக்கப்பட்டது!';
 
         alert(message);
     };
@@ -179,66 +194,6 @@ export default function SettingsPage({ events, registrars, settings, setSettings
         }
     };
 
-    const forceUploadLocalData = async () => {
-        const base = (apiUrl || '').replace(/\/$/, '');
-        if (!base) {
-            alert('API URL சரியாக இல்லை. முதலில் API URL-ஐ உள்ளிடவும்.');
-            return;
-        }
-
-        const confirmed = window.confirm('Cloud/API-ல் உள்ள data அனைத்தும் அழிக்கப்பட்டு, local data மீண்டும் upload செய்யப்படும். தொடரவா?');
-        if (!confirmed) return;
-
-        setIsForceSyncing(true);
-        try {
-            const clearRes = await fetch(base + '/admin/clear-data?confirm=YES', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            if (!clearRes.ok) {
-                throw new Error('API data clear failed: ' + clearRes.status);
-            }
-
-            const localEvents = storage.loadEvents ? storage.loadEvents() : [];
-            const localRegistrars = storage.loadRegistrars ? storage.loadRegistrars() : [];
-            const localMembers = storage.loadMembers ? storage.loadMembers() : [];
-            const localEntries = storage.loadMoiEntries ? storage.loadMoiEntries() : [];
-            const localSettingsData = storage.loadSettings ? storage.loadSettings() : {};
-
-            for (const event of localEvents) {
-                await databaseManager.createEvent(event);
-            }
-
-            for (const registrar of localRegistrars) {
-                await databaseManager.createRegistrar(registrar);
-            }
-
-            for (const member of localMembers) {
-                if (member && (member.memberCode || member.member_code || member.memberId)) {
-                    await databaseManager.createMember(member);
-                }
-            }
-
-            for (const entry of localEntries) {
-                await databaseManager.createMoiEntry(entry);
-            }
-
-            if (localSettingsData && Object.keys(localSettingsData).length > 0) {
-                await databaseManager.saveSettings(localSettingsData);
-            }
-
-            if (reloadAllData) {
-                await reloadAllData();
-            }
-
-            alert('✅ Local data மீண்டும் Cloud/API-க்கு upload ஆனது.');
-        } catch (err) {
-            console.error('Force upload failed:', err);
-            alert('❌ Force upload தோல்வியடைந்தது: ' + (err.message || err));
-        } finally {
-            setIsForceSyncing(false);
-        }
-    };
 
     // Test cloud connection
     const testCloudConnection = async () => {
@@ -292,85 +247,116 @@ export default function SettingsPage({ events, registrars, settings, setSettings
         }
     };
 
+    const normalizeApiBase = (value) => String(value || '').trim().replace(/\/$/, '');
+    const getPrinterApiBases = () => {
+        const bases = [];
+        const fromDb = databaseManager && typeof databaseManager._getApiBaseUrl === 'function'
+            ? databaseManager._getApiBaseUrl()
+            : '';
+        [apiUrl, fromDb, LOCAL_PRINTER_API_URL].forEach((candidate) => {
+            const normalized = normalizeApiBase(candidate);
+            if (normalized) {
+                bases.push(normalized);
+            }
+        });
+        return Array.from(new Set(bases));
+    };
+
     // Try to fetch printers from the backend (if server exposes an endpoint)
     const fetchPrintersFromApi = async () => {
-        if (!apiUrl) {
-            alert('Please set API URL first to fetch printers.');
+        const bases = getPrinterApiBases();
+        if (!bases.length) {
+            alert('Please set API URL or run the local server to fetch printers.');
             return;
         }
-        try {
-            const base = apiUrl.replace(/\/$/, '');
-            const res = await fetch(base + '/printers');
-            if (!res.ok) throw new Error('Status ' + res.status);
-            const data = await res.json();
-            if (Array.isArray(data) && data.length > 0) {
-                setPrinters(data);
-                alert('Printers refreshed from API.');
-            } else {
-                alert('No printers returned by API.');
+        setPrinterStatus('Loading printers...');
+        let lastError = null;
+        for (const base of bases) {
+            try {
+                const res = await fetch(base + '/printers');
+                if (!res.ok) {
+                    lastError = new Error('Status ' + res.status);
+                    continue;
+                }
+                const payload = await res.json();
+                const data = normalizePrinterList(payload);
+                if (Array.isArray(data) && data.length > 0) {
+                    setPrinters(data);
+                    setPrinterStatus(`Loaded ${data.length} printers.`);
+                    alert('Printers refreshed from API.');
+                    return;
+                }
+            } catch (err) {
+                lastError = err;
             }
-        } catch (err) {
-            console.warn('Printer fetch failed:', err);
-            alert('Failed to fetch printers from API. Using local list.');
         }
+        console.warn('Printer fetch failed:', lastError);
+        setPrinterStatus('No printers found. Please ensure local server is running.');
+        alert('Failed to fetch printers. Please ensure the local server is running.');
     };
 
     useEffect(() => {
-        if (!apiUrl) {
-            return;
-        }
         let cancelled = false;
         const autoFetch = async () => {
-            try {
-                const base = apiUrl.replace(/\/$/, '');
-                const res = await fetch(base + '/printers');
-                if (!res.ok) {
-                    return;
-                }
-                const data = await res.json();
-                if (!cancelled && Array.isArray(data) && data.length) {
-                    setPrinters(data);
-                    
-                    // Auto-assign first non-PDF printer as default for all tables if not already set
-                    const physicalPrinter = data.find(p => !p.toLowerCase().includes('pdf') && !p.toLowerCase().includes('onenote'));
-                    if (physicalPrinter) {
-                        setLocalSettings(prev => {
-                            const needsUpdate = [...Array(10)].some((_, i) => {
-                                const table = `table${i + 1}`;
-                                return !prev.printerAssignments?.[table]?.printer;
-                            });
-                            
-                            if (!needsUpdate) return prev;
-                            
-                            const updatedAssignments = { ...prev.printerAssignments };
-                            [...Array(10)].forEach((_, i) => {
-                                const table = `table${i + 1}`;
-                                if (!updatedAssignments[table]?.printer) {
-                                    updatedAssignments[table] = {
-                                        ...updatedAssignments[table],
-                                        printer: physicalPrinter,
-                                        count: '1'
-                                    };
-                                }
-                            });
-                            
-                            const newSettings = {
-                                ...prev,
-                                printerAssignments: updatedAssignments
-                            };
-                            
-                            // Auto-save the settings immediately
-                            console.log('🖨️ Auto-configuring printer:', physicalPrinter);
-                            if (setSettings) {
-                                setTimeout(() => setSettings(newSettings), 100);
-                            }
-                            
-                            return newSettings;
-                        });
+            const bases = getPrinterApiBases();
+            if (!bases.length) return;
+            for (const base of bases) {
+                try {
+                    const res = await fetch(base + '/printers');
+                    if (!res.ok) {
+                        continue;
                     }
+                    const payload = await res.json();
+                    const data = normalizePrinterList(payload);
+                    if (!cancelled && Array.isArray(data) && data.length) {
+                        setPrinters(data);
+                        setPrinterStatus(`Loaded ${data.length} printers.`);
+                        
+                        // Auto-assign first non-PDF printer as default for all tables if not already set
+                        const physicalPrinter = data.find(p => !p.toLowerCase().includes('pdf') && !p.toLowerCase().includes('onenote'));
+                        if (physicalPrinter) {
+                            setLocalSettings(prev => {
+                                const needsUpdate = [...Array(10)].some((_, i) => {
+                                    const table = `table${i + 1}`;
+                                    return !prev.printerAssignments?.[table]?.printer;
+                                });
+                                
+                                if (!needsUpdate) return prev;
+                                
+                                const updatedAssignments = { ...prev.printerAssignments };
+                                [...Array(10)].forEach((_, i) => {
+                                    const table = `table${i + 1}`;
+                                    if (!updatedAssignments[table]?.printer) {
+                                        updatedAssignments[table] = {
+                                            ...updatedAssignments[table],
+                                            printer: physicalPrinter,
+                                            count: '1'
+                                        };
+                                    }
+                                });
+                                
+                                const newSettings = {
+                                    ...prev,
+                                    printerAssignments: updatedAssignments
+                                };
+                                
+                                // Auto-save the settings immediately
+                                console.log('🖨️ Auto-configuring printer:', physicalPrinter);
+                                if (setSettings) {
+                                    setTimeout(() => setSettings(newSettings), 100);
+                                }
+                                
+                                return newSettings;
+                            });
+                        }
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('Auto printer fetch failed:', err);
                 }
-            } catch (err) {
-                console.warn('Auto printer fetch failed:', err);
+            }
+            if (!cancelled) {
+                setPrinterStatus('No printers found.');
             }
         };
         autoFetch();
@@ -433,14 +419,6 @@ export default function SettingsPage({ events, registrars, settings, setSettings
                             style={{width:'60%',marginRight:8}}
                         />
                         <button className="button" onClick={testApiConnection}>Test API</button>
-                        <button
-                            className="button button-secondary"
-                            onClick={forceUploadLocalData}
-                            disabled={isForceSyncing}
-                            style={{ marginLeft: 8 }}
-                        >
-                            {isForceSyncing ? 'Syncing...' : 'Force Upload Local Data'}
-                        </button>
                         <span style={{marginLeft:12}}>{apiStatus}</span>
                     </div>
                     <p style={{fontSize:'12px',color:'#666'}}>API URL: Node.js server (Express) running with MySQL backend. Eg: http://localhost:3001/api</p>
@@ -500,68 +478,137 @@ export default function SettingsPage({ events, registrars, settings, setSettings
                 <section className="settings-section">
                     <h3>விழா தேர்வு</h3>
                     <div className="settings-form-group">
+                        <label>இயல்புநிலை விழா</label>
                         <div className="form-group">
-                            <select 
-                                value={localSettings.defaultEventId || ''} 
-                                onChange={(e) => setLocalSettings(p => ({...p, defaultEventId: e.target.value}))}
+                            <select
+                                value={localSettings.defaultEventId || ''}
+                                onChange={(e) =>
+                                    setLocalSettings(prev => ({
+                                        ...prev,
+                                        defaultEventId: e.target.value
+                                    }))
+                                }
+                                style={{ padding: '0.6rem', borderRadius: '6px', minWidth: 260 }}
                             >
-                                <option value="">விழாவைத் தேர்ந்தெடுக்கவும்</option>
-                                {permittedEvents.map(event => (
-                                    <option key={event.id} value={event.id}>
-                                        {event.id} - {event.eventName} ({new Date(event.date).toLocaleDateString('en-GB')})
-                                    </option>
-                                ))}
+                                <option value="">விழாவைத் தேர்வு செய்யவும்</option>
+                                {permittedEvents.map(ev => {
+                                    const dateText = ev.date ? new Date(ev.date).toLocaleDateString('en-GB') : '';
+                                    const timeText = ev.time ? ev.time : '';
+                                    const placeText = ev.venue || ev.place || ev.location || '';
+                                    const headText = ev.eventHead || '';
+                                    const organizerText = ev.eventOrganizer || '';
+                                    const meta = [dateText, timeText].filter(Boolean).join(' ');
+                                    const people = [headText, organizerText].filter(Boolean).join(' / ');
+                                    const sideText = ev.eventSide ? `(${ev.eventSide})` : '';
+                                    return (
+                                        <option key={ev.id} value={ev.id}>
+                                            {ev.eventName} {sideText} - {ev.id}
+                                            {meta ? ` | ${meta}` : ''}
+                                            {placeText ? ` | ${placeText}` : ''}
+                                            {people ? ` | ${people}` : ''}
+                                        </option>
+                                    );
+                                })}
                             </select>
                         </div>
+                        {selectedEvent && (
+                            <small style={{ color: '#666' }}>
+                                தேர்ந்த விழா: {selectedEvent.eventName} {selectedEvent.eventSide ? `(${selectedEvent.eventSide})` : ''} | {selectedEvent.id}
+                                {selectedEvent.date ? ` | ${new Date(selectedEvent.date).toLocaleDateString('en-GB')}` : ''}
+                                {selectedEvent.time ? ` ${selectedEvent.time}` : ''}
+                                {(selectedEvent.venue || selectedEvent.place || selectedEvent.location) ? ` | ${selectedEvent.venue || selectedEvent.place || selectedEvent.location}` : ''}
+                                {selectedEvent.eventHead ? ` | தலைவர்: ${selectedEvent.eventHead}` : ''}
+                                {selectedEvent.eventOrganizer ? ` | அமைப்பாளர்: ${selectedEvent.eventOrganizer}` : ''}
+                            </small>
+                        )}
+                    </div>
+                    <div className="form-actions" style={{justifyContent: 'flex-start', paddingTop: '0.5rem'}}>
                         <button className="button" onClick={() => handleConfirm('defaultEvent')}>உறுதி செய்</button>
                     </div>
-                    {/* Show selected event details */}
-                    {selectedEvent && (
-                        <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid #e0e0e0', borderRadius: 6, background: '#fafdf9', maxWidth: 720 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                                <strong>{selectedEvent.eventName}{selectedEvent.eventSide ? ` (${selectedEvent.eventSide})` : ''}</strong>
-                                <span style={{ color: '#666' }}>{selectedEvent.date ? new Date(selectedEvent.date).toLocaleDateString('en-GB') : ''} {selectedEvent.time ? ` ${formatTo12Hour(selectedEvent.time).hour}:${formatTo12Hour(selectedEvent.time).minute} ${formatTo12Hour(selectedEvent.time).period}` : ''}</span>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                                <div><small>விழா தலைவர்</small><div>{selectedEvent.eventHead || '-'}</div></div>
-                                <div><small>விழா அமைப்பாளர்</small><div>{selectedEvent.eventOrganizer || '-'}</div></div>
-                                <div><small>மண்டபம்</small><div>{selectedEvent.venue || '-'}</div></div>
-                                <div><small>இடம்</small><div>{selectedEvent.place || '-'}</div></div>
-                            </div>
+                </section>
+
+                {/* Bill Header Info */}
+                <section className="settings-section">
+                    <h3>பில் Header விவரம்</h3>
+                    <div className="settings-form-group" style={{ alignItems: 'stretch' }}>
+                        <div className="form-group" style={{ width: '100%' }}>
+                            <label htmlFor="billHeaderAddress">நிறுவண முகவரி</label>
+                            <textarea
+                                id="billHeaderAddress"
+                                value={localSettings.billHeaderAddress || ''}
+                                onChange={(e) => setLocalSettings(prev => ({
+                                    ...prev,
+                                    billHeaderAddress: e.target.value
+                                }))}
+                                rows="2"
+                                placeholder="உதா: 123, மெயின் ரோடு, மதுரை"
+                            />
                         </div>
-                    )}
+                        <div className="form-group" style={{ width: '100%' }}>
+                            <label htmlFor="billHeaderPhone">நிறுவண தொலைபேசி</label>
+                            <input
+                                type="text"
+                                id="billHeaderPhone"
+                                value={localSettings.billHeaderPhone || ''}
+                                onChange={(e) => {
+                                    const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                                    if (numericValue.length > 10) return;
+                                    setLocalSettings(prev => ({
+                                        ...prev,
+                                        billHeaderPhone: numericValue
+                                    }));
+                                }}
+                                placeholder="10 இலக்க எண்"
+                            />
+                        </div>
+                    </div>
+                    <div className="form-actions" style={{justifyContent: 'flex-start', paddingTop: '0.5rem'}}>
+                        <button className="button" onClick={() => handleConfirm('billHeader')}>உறுதி செய்</button>
+                    </div>
                 </section>
 
                 {/* Registrar Selection */}
                 <section className="settings-section">
                     <h3>பதிவாளர் தேர்வு</h3>
-                     {[...Array(10)].map((_, i) => {
+                    {[...Array(10)].map((_, i) => {
                         const table = `table${i + 1}`;
                         const assignment = localSettings.registrarAssignments?.[table] || {};
                         return (
                             <div key={table} className="table-assignment-grid settings-form-group">
                                 <label>மேசை {i + 1}</label>
                                 <div className="form-group">
-                                    <SearchableDropdown
-                                        options={typists}
+                                    <select
                                         value={assignment.typist || ''}
-                                        onChange={(val) => handleRegistrarAssignment(table, 'typist', val)}
-                                        placeholder="தட்டச்சாளர் (தேடுக)"
-                                    />
+                                        onChange={(e) => handleRegistrarAssignment(table, 'typist', e.target.value)}
+                                        style={{ padding: '0.6rem', borderRadius: '6px', minWidth: 260 }}
+                                    >
+                                        <option value="">தட்டச்சாளர் தேர்வு</option>
+                                        {typists.map(r => (
+                                            <option key={r.id} value={r.id}>
+                                                {r.name} ({r.id})
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
                                 <div className="form-group">
-                                    <SearchableDropdown
-                                        options={cashiers}
+                                    <select
                                         value={assignment.cashier || ''}
-                                        onChange={(val) => handleRegistrarAssignment(table, 'cashier', val)}
-                                        placeholder="காசாளர் (தேடுக)"
-                                    />
+                                        onChange={(e) => handleRegistrarAssignment(table, 'cashier', e.target.value)}
+                                        style={{ padding: '0.6rem', borderRadius: '6px', minWidth: 260 }}
+                                    >
+                                        <option value="">காசாளர் தேர்வு</option>
+                                        {cashiers.map(r => (
+                                            <option key={r.id} value={r.id}>
+                                                {r.name} ({r.id})
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
                             </div>
                         );
                     })}
-                    <div className="form-actions" style={{justifyContent: 'flex-start', paddingTop: '1rem'}}>
-                         <button className="button" onClick={() => handleConfirm('registrarAssignments')}>உறுதி செய்</button>
+                    <div className="form-actions" style={{justifyContent: 'flex-start', paddingTop: '0.5rem'}}>
+                        <button className="button" onClick={() => handleConfirm('registrarAssignments')}>உறுதி செய்</button>
                     </div>
                 </section>
                 
@@ -608,6 +655,9 @@ export default function SettingsPage({ events, registrars, settings, setSettings
                     })}
                     <div style={{ marginTop: 8 }}>
                         <button className="button" onClick={fetchPrintersFromApi} style={{ marginRight: 8 }}>Refresh printers</button>
+                        {printerStatus && (
+                            <small style={{ color: '#666', marginRight: 8 }}>{printerStatus}</small>
+                        )}
                         <small style={{ color: '#666' }}>Show only available device printers when backend supports it.</small>
                     </div>
                     {/* Show sample bill modal if testBillTable is set */}
@@ -635,7 +685,7 @@ export default function SettingsPage({ events, registrars, settings, setSettings
                                     eventSide: 'மாப்பிள்ளை',
                                     eventHead: 'ராமு',
                                     eventOrganizer: 'சிவா',
-                                }} />
+                                }} settings={localSettings} />
                                 <div style={{textAlign:'right',marginTop:16}}>
                                     <button className="button" onClick={()=>setTestBillTable(null)}>Close</button>
                                 </div>

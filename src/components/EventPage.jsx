@@ -8,8 +8,6 @@ const initialFormData = {
     eventSide: '',
     date: '',
     time: '10:00',
-    organizationAddress: '',
-    organizationPhone: '',
     eventHead: '',
     eventHeadProf: '',
     eventOrganizer: '',
@@ -88,7 +86,7 @@ export default function EventPage({ events, addOrUpdateEvent, deleteEvent, toggl
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         
-           if (name === 'phone' || name === 'organizationPhone') {
+           if (name === 'phone') {
             const numericValue = value.replace(/[^0-9]/g, '');
             if (numericValue.length <= 10) {
                  setFormData(prev => ({ ...prev, [name]: numericValue }));
@@ -141,8 +139,6 @@ export default function EventPage({ events, addOrUpdateEvent, deleteEvent, toggl
                 eventSide: eventToEdit.eventSide || '',
                 date: eventToEdit.date,
                 time: eventToEdit.time,
-                organizationAddress: eventToEdit.organizationAddress || '',
-                organizationPhone: eventToEdit.organizationPhone || '',
                 eventHead: eventToEdit.eventHead,
                 eventHeadProf: eventToEdit.eventHeadProf || '',
                 eventOrganizer: eventToEdit.eventOrganizer,
@@ -324,15 +320,6 @@ export default function EventPage({ events, addOrUpdateEvent, deleteEvent, toggl
                     >
                         விழா விவரங்கள்
                     </button>
-                    <button
-                        type="button"
-                        className={`tab-button ${activeDetailsTab === 'org' ? 'active' : ''}`}
-                        onClick={() => setActiveDetailsTab('org')}
-                        role="tab"
-                        aria-selected={activeDetailsTab === 'org'}
-                    >
-                        நிறுவனம் விவரம்
-                    </button>
                 </div>
 
                 {activeDetailsTab === 'event' && (
@@ -504,19 +491,6 @@ export default function EventPage({ events, addOrUpdateEvent, deleteEvent, toggl
                 </div>
                 )}
 
-                {activeDetailsTab === 'org' && (
-                <div className="form-grid" role="tabpanel">
-                    <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                        <label htmlFor="organizationAddress">நிறுவனம் முகவரி</label>
-                        <textarea id="organizationAddress" name="organizationAddress" value={formData.organizationAddress} onChange={handleInputChange} rows="2" placeholder="உதா: 123, மெயின் ரோடு, மதுரை" />
-                    </div>
-
-                    <div className="form-group">
-                        <label htmlFor="organizationPhone">நிறுவனம் தொலைபேசி</label>
-                        <input type="text" id="organizationPhone" name="organizationPhone" value={formData.organizationPhone} onChange={handleInputChange} pattern="[0-9]{10}" title="சரியாக 10 இலக்க தொலைபேசி எண்ணை உள்ளிடவும்" />
-                    </div>
-                </div>
-                )}
 
                     <div className="form-actions">
                         <button type="button" className="button clear-button" onClick={handleClearForm}>புதிதாக்கு</button>

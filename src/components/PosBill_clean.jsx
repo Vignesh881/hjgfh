@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from 'react';
 
 // POS bill layout rendered inside a hidden iframe for printing
-export default function PosBill({ entry = {}, event = {} }) {
+export default function PosBill({ entry = {}, event = {}, settings = {} }) {
     const [currentDateTime, setCurrentDateTime] = useState(new Date());
 
     useEffect(() => {
@@ -29,10 +29,11 @@ export default function PosBill({ entry = {}, event = {} }) {
     const liveDateTime = formatLiveTime(currentDateTime);
 
     const denominations = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+    const denominationSource = entry.receivedDenominations || entry.denominations || {};
     let denominationText = '';
     let hasDenominationValues = false;
     for (const value of denominations) {
-        const count = entry.denominations?.[value] || 0;
+        const count = denominationSource?.[value] || 0;
         if (count > 0) {
             hasDenominationValues = true;
             denominationText += `${value} X ${count} = ${value * count}` + '\n';
@@ -43,16 +44,6 @@ export default function PosBill({ entry = {}, event = {} }) {
     }
 
     // Include all known field names so header never misses saved values
-    const organizationAddress = event.organizationAddress
-        || event.organization_address
-        || event.orgAddress
-        || event.address
-        || '';
-    const organizationPhone = event.organizationPhone
-        || event.organization_phone
-        || event.orgPhone
-        || event.phone
-        || '';
     const eventNumber = event.id ? String(event.id).padStart(4, '0') : (event.eventCode ? String(event.eventCode) : '');
     const tableNumberRaw = entry.table || entry.tableNo || entry.table_no || '';
     const tableNumber = typeof tableNumberRaw === 'string' ? tableNumberRaw.replace(/table/gi, 'T').toUpperCase() : tableNumberRaw;
@@ -81,29 +72,32 @@ export default function PosBill({ entry = {}, event = {} }) {
         return '';
     })();
 
+    const billHeaderAddress = settings.billHeaderAddress || '';
+    const billHeaderPhone = settings.billHeaderPhone || '';
+
+    const lineColor = '#000';
     const billStyles = {
         posBill: {
-            width: '77mm',
-            maxWidth: '77mm',
-            minWidth: '77mm',
-            margin: '0',
+            width: '72mm',
+            maxWidth: '72mm',
+            minWidth: '72mm',
+            margin: '1.5mm auto 0',
             fontFamily: "'Noto Sans Tamil', 'Latha', 'TAMu_Kadambri', monospace",
             fontSize: '13px',
             lineHeight: 1.4,
-            color: '#111',
-            backgroundColor: '#fff',
-            border: '1px solid #000',
+            color: '#000',
+            border: `1px solid ${lineColor}`,
             padding: '3mm',
             boxSizing: 'border-box'
         },
         header: {
             paddingBottom: '2px',
-            borderBottom: '1px solid #000',
+            borderBottom: `1px solid ${lineColor}`,
             textAlign: 'center'
         },
         title: {
             fontSize: '18px',
-            fontWeight: 700,
+            fontWeight: 600,
             letterSpacing: '0.5px',
             textTransform: 'uppercase'
         },
@@ -111,11 +105,16 @@ export default function PosBill({ entry = {}, event = {} }) {
             fontSize: '11px',
             marginTop: '1px'
         },
+        organizationLineStrong: {
+            fontSize: '11px',
+            marginTop: '1px',
+            fontWeight: 600
+        },
         section: {
             padding: '3px 0'
         },
         eventName: {
-            fontWeight: 600,
+            fontWeight: 500,
             textAlign: 'center',
             fontSize: '14px'
         },
@@ -125,7 +124,7 @@ export default function PosBill({ entry = {}, event = {} }) {
             marginTop: '1px'
         },
         metaBox: {
-            border: '1px solid #000',
+            border: `1px solid ${lineColor}`,
             display: 'grid',
             gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
             columnGap: '4px',
@@ -139,21 +138,21 @@ export default function PosBill({ entry = {}, event = {} }) {
             justifyContent: 'space-between'
         },
         infoLabel: {
-            fontWeight: 600,
+            fontWeight: 500,
             marginRight: '3px'
         },
         infoValue: {
-            fontWeight: 600
+            fontWeight: 500
         },
         relationshipRole: {
             textAlign: 'center',
             fontSize: '12px',
             marginTop: '2px',
-            fontWeight: 600
+            fontWeight: 500
         },
         nameLine: {
             fontSize: '16px',
-            fontWeight: 700,
+            fontWeight: 600,
             textAlign: 'center',
             wordBreak: 'break-word',
             hyphens: 'auto',
@@ -168,7 +167,7 @@ export default function PosBill({ entry = {}, event = {} }) {
         townLine: {
             marginTop: '3px',
             fontSize: '14px',
-            fontWeight: 600,
+            fontWeight: 500,
             textAlign: 'center'
         },
         streetLine: {
@@ -184,7 +183,7 @@ export default function PosBill({ entry = {}, event = {} }) {
         denominations: {
             fontFamily: 'monospace',
             fontSize: '13px',
-            border: '1px dashed #000',
+            border: `1px dashed ${lineColor}`,
             padding: '3px',
             marginTop: '3px'
         },
@@ -195,7 +194,7 @@ export default function PosBill({ entry = {}, event = {} }) {
             alignItems: 'center',
             marginTop: '5px',
             paddingTop: '5px',
-            borderTop: '2px solid #000',
+            borderTop: `2px solid ${lineColor}`,
             textAlign: 'center'
         },
         totalLabel: {
@@ -205,7 +204,7 @@ export default function PosBill({ entry = {}, event = {} }) {
             fontSize: '13px'
         },
         footer: {
-            borderTop: '1px solid #000',
+            borderTop: `1px solid ${lineColor}`,
             marginTop: '4px',
             paddingTop: '3px',
             textAlign: 'center',
@@ -215,7 +214,7 @@ export default function PosBill({ entry = {}, event = {} }) {
             marginBottom: '1px'
         },
         thanks: {
-            fontWeight: 600,
+            fontWeight: 500,
             marginTop: '2px',
             fontSize: '13px'
         }
@@ -225,11 +224,11 @@ export default function PosBill({ entry = {}, event = {} }) {
         <div style={billStyles.posBill}>
             <header style={billStyles.header}>
                 <div style={billStyles.title}>மொய்புக்</div>
-                {organizationAddress && (
-                    <div style={billStyles.organizationLine}>{organizationAddress}</div>
+                {billHeaderAddress && (
+                    <div style={billStyles.organizationLine}>{billHeaderAddress}</div>
                 )}
-                {organizationPhone && (
-                    <div style={billStyles.organizationLine}>தொலைபேசி: {organizationPhone}</div>
+                {billHeaderPhone && (
+                    <div style={billStyles.organizationLineStrong}>தொலைபேசி: {billHeaderPhone}</div>
                 )}
             </header>
 
@@ -242,7 +241,7 @@ export default function PosBill({ entry = {}, event = {} }) {
                 {event.eventOrganizer && <div style={billStyles.eventMeta}>{event.eventOrganizer}</div>}
             </section>
 
-            <div style={{ borderTop: '1px solid #000', margin: '4px 0 2px 0' }}></div>
+            <div style={{ borderTop: '1px solid #666', margin: '4px 0 2px 0' }}></div>
 
             <div style={{ ...billStyles.detailLine, marginTop: '3px', fontWeight: 600, fontSize: '10px' }}>
                 {liveDateTime.dateText} {liveDateTime.timeText}

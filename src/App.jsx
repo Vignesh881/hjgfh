@@ -14,6 +14,8 @@ import MoiEntryPage from './components/MoiEntryPage';
 import MoiFormPage from './components/MoiFormPage';
 import MoiDetailsPage from './components/MoiDetailsPage';
 import MasterDashboard from './components/MasterDashboard';
+import BookingPage from './components/BookingPage';
+import BookingAdminPage from './components/BookingAdminPage';
 import * as storage from './lib/localStorage'; // Local storage persistence
 import databaseManager from './lib/databaseManager'; // Multi-system database manager
 import UploadDBButton from './components/UploadDBButton';
@@ -76,6 +78,10 @@ export default function App() {
   if (typeof window !== 'undefined' && window.location && window.location.pathname) {
     if (window.location.pathname === '/settings') {
       initialPage = 'settings';
+    } else if (window.location.pathname === '/booking') {
+      initialPage = 'booking';
+    } else if (window.location.pathname === '/booking-admin') {
+      initialPage = 'booking-admin';
     }
   }
   const [page, setPage] = useState(initialPage);
@@ -178,7 +184,7 @@ export default function App() {
 
           const normalizedMembers = Array.isArray(apiMembers) ? apiMembers.map(member => ({
             ...member,
-            id: member.id?.toString().padStart(4, '0') || member.id,
+            id: member.id?.toString().padStart(6, '0') || member.id,
             memberCode: member.memberCode || member.member_code || member.memberId || ''
           })) : [];
           setMembers(normalizedMembers);
@@ -515,7 +521,7 @@ export default function App() {
 
     if (!memberToSave.id) {
       const maxId = members.reduce((max, m) => Math.max(max, parseInt(m.id, 10) || 0), 0);
-      memberToSave.id = (maxId + 1).toString().padStart(4, '0');
+  memberToSave.id = (maxId + 1).toString().padStart(6, '0');
     }
 
     let updatedMembers;
@@ -523,7 +529,7 @@ export default function App() {
       try {
         const remoteMembers = await databaseManager.getMembers({ useLocalFallback: false });
         if (Array.isArray(remoteMembers)) {
-          updatedMembers = remoteMembers.map(m => ({ ...m, id: m.id?.toString().padStart(4, '0') || m.id }));
+          updatedMembers = remoteMembers.map(m => ({ ...m, id: m.id?.toString().padStart(6, '0') || m.id }));
         }
       } catch (error) {
         console.warn('Failed to reload members from API, falling back to local data:', error);
@@ -827,7 +833,7 @@ export default function App() {
 
       const normalizedMembers = Array.isArray(refreshedMembers) ? refreshedMembers.map(member => ({
         ...member,
-        id: member.id?.toString().padStart(4, '0') || member.id,
+        id: member.id?.toString().padStart(6, '0') || member.id,
         memberCode: member.memberCode || member.member_code || member.memberId || ''
       })) : [];
 
@@ -1014,6 +1020,14 @@ export default function App() {
     setSelectedEventId(null);
   }
 
+  if (page === 'booking') {
+    return <BookingPage />;
+  }
+
+  if (page === 'booking-admin') {
+    return <BookingAdminPage />;
+  }
+
   if (isLoading) {
       return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontSize: '1.5rem', color: 'var(--primary-color)' }}>
@@ -1034,6 +1048,7 @@ export default function App() {
     }
     return <MasterDashboard 
         event={event} 
+      settings={settings}
         moiEntries={moiEntries}
         setMoiEntries={bulkUpdateMoiEntries}
         onBack={navigateBack}

@@ -7,7 +7,7 @@
 export const testPrintData = {
     entry: {
         id: 1001,
-        memberId: 'UR-0001',
+    memberId: 'UR-000001',
         table: 'table1',
         town: 'சென்னை',
         street: 'அண்ணா நகர்',

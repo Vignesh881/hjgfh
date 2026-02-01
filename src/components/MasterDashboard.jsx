@@ -15,15 +15,65 @@ const denominations = [500, 200, 100, 50, 20, 10, 5, 2, 1];
 const AllEntriesView = ({ moiEntries, event }) => {
     const [searchQuery, setSearchQuery] = useState('');
 
-    const filteredMoiEntries = useMemo(() => {
-        // Filter by eventId and only show entries for permitted events
+    const getEntrySerialNumber = (entry) => {
+        const raw = entry?.serialNumber ?? entry?.serial_no ?? entry?.serial ?? entry?.entryNumber ?? null;
+        const parsed = raw != null ? parseInt(raw, 10) : NaN;
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    };
+
+    const formatSerialNumber = (value) => {
+        const parsed = value != null ? parseInt(value, 10) : NaN;
+        if (!Number.isFinite(parsed)) return '';
+        return parsed.toString().padStart(4, '0');
+    };
+
+    const eventEntries = useMemo(() => {
         if (!event || !(event.permission === true || event.permission === 'true')) return [];
-        let entries = moiEntries.filter(entry => entry.eventId === event.id);
-        // Then apply search filter if needed
+        return moiEntries.filter(entry => entry.eventId === event.id);
+    }, [moiEntries, event]);
+
+    const eventSerialMap = useMemo(() => {
+        const map = new Map();
+        const sorted = [...eventEntries].sort((a, b) => {
+            const aSerial = getEntrySerialNumber(a);
+            const bSerial = getEntrySerialNumber(b);
+            if (Number.isFinite(aSerial) && Number.isFinite(bSerial)) {
+                return aSerial - bSerial;
+            }
+            const aKey = Number.isFinite(aSerial) ? aSerial : (parseInt(a?.id, 10) || 0);
+            const bKey = Number.isFinite(bSerial) ? bSerial : (parseInt(b?.id, 10) || 0);
+            return aKey - bKey;
+        });
+        let seq = 1;
+        for (const entry of sorted) {
+            if (getEntrySerialNumber(entry) == null) {
+                map.set(entry, seq);
+            }
+            seq += 1;
+        }
+        return map;
+    }, [eventEntries]);
+
+    const resolveSerialNumber = (entry) => {
+        const existing = getEntrySerialNumber(entry);
+        if (Number.isFinite(existing)) return existing;
+        const mapped = eventSerialMap.get(entry);
+        return Number.isFinite(mapped) ? mapped : null;
+    };
+
+    const filteredMoiEntries = useMemo(() => {
+        let entries = eventEntries;
         if (!searchQuery) return entries;
         const lowercasedQuery = searchQuery.toLowerCase();
-        const getCombinedId = (entry) =>
-            `${entry.table ? entry.table.replace('table', 'T').toUpperCase() : 'T?'}-${entry.id}`;
+        const getCombinedId = (entry) => {
+            const tableLabel = entry.table ? entry.table.replace('table', 'T').toUpperCase() : 'T?';
+            const serialNumber = resolveSerialNumber(entry);
+            const serialText = formatSerialNumber(serialNumber)
+                || entry.serialNumber
+                || entry.entryNumber
+                || entry.id;
+            return `${tableLabel}-${serialText}`;
+        };
         return entries.filter(entry =>
             (getCombinedId(entry).toLowerCase().includes(lowercasedQuery)) ||
             (entry.memberId && entry.memberId.toLowerCase().includes(lowercasedQuery)) ||
@@ -32,7 +82,7 @@ const AllEntriesView = ({ moiEntries, event }) => {
             (entry.phone && entry.phone.includes(lowercasedQuery)) ||
             (entry.amount && Math.abs(entry.amount).toString().includes(lowercasedQuery))
         );
-    }, [searchQuery, moiEntries, event]);
+    }, [searchQuery, eventEntries, eventSerialMap]);
     
     return (
          <section className="event-table-container" style={{ backgroundColor: '#fff', padding: '2rem', borderRadius: '16px', boxShadow: 'var(--shadow)' }}>
@@ -64,7 +114,11 @@ const AllEntriesView = ({ moiEntries, event }) => {
                             }
                         >
                             <td>
-                                <span>{`${entry.table ? entry.table.replace('table', 'T').toUpperCase() : 'T?'}-${entry.id}`}</span>
+                                <span>{formatSerialNumber(resolveSerialNumber(entry))
+                                    || entry.serialNumber
+                                    || entry.entryNumber
+                                    || entry.id}
+                                </span>
                                 <span className="sub-text">{entry.memberId}</span>
                             </td>
                             <td>
@@ -106,7 +160,7 @@ const AllEntriesView = ({ moiEntries, event }) => {
 
 
 // --- Sub-component for Moi Details View ---
-const MoiDetailsView = ({ summary, tableSummary, totalDenominations, perTableDenominations, missingDenominationEntries, tableDenominationVariance }) => {
+const MoiDetailsView = ({ summary, tableSummary, totalDenominations, handDenominations, perTableDenominations, perTableHandDenominations, missingDenominationEntries, tableDenominationVariance }) => {
     return (
         <>
             <section className="summary-cards">
@@ -152,7 +206,7 @@ const MoiDetailsView = ({ summary, tableSummary, totalDenominations, perTableDen
 
                     <section className="cash-tally-section">
                         <h2>மேசை வாரியான பணப்பிரிப்பு விபரம்</h2>
-                        {perTableDenominations.length > 0 ? (
+                        {(perTableDenominations.length > 0 || perTableHandDenominations.length > 0) ? (
                             <div style={{ overflowX: 'auto', paddingBottom: '1rem' }}>
                                 <div 
                                     className="per-table-denomination-grid" 
@@ -163,7 +217,23 @@ const MoiDetailsView = ({ summary, tableSummary, totalDenominations, perTableDen
                                         padding: '4px' // Prevent card shadow clipping
                                     }}
                                 >
-                                    {perTableDenominations.map(([tableId, data]) => (
+                                    {Array.from(new Set([
+                                        ...perTableDenominations.map(([id]) => id),
+                                        ...perTableHandDenominations.map(([id]) => id)
+                                    ])).sort((a, b) => {
+                                        const numA = parseInt(String(a).replace('table', ''), 10);
+                                        const numB = parseInt(String(b).replace('table', ''), 10);
+                                        return numA - numB;
+                                    }).map((tableId) => {
+                                        const data = perTableDenominations.find(([id]) => id === tableId)?.[1] || {
+                                            counts: denominations.reduce((acc, note) => ({...acc, [note]: 0}), {}),
+                                            totalAmount: 0
+                                        };
+                                        const handData = perTableHandDenominations.find(([id]) => id === tableId)?.[1] || {
+                                            counts: denominations.reduce((acc, note) => ({...acc, [note]: 0}), {}),
+                                            totalAmount: 0
+                                        };
+                                        return (
                                         <div className="table-denomination-card" key={tableId} style={{ flex: '0 0 320px' }}>
                                             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px'}}>
                                                 <h3 style={{margin:'0'}}>Table {tableId.replace('table', '')}</h3>
@@ -176,12 +246,13 @@ const MoiDetailsView = ({ summary, tableSummary, totalDenominations, perTableDen
                                                     <span className="icon">print</span>
                                                 </button>
                                             </div>
+                                            <div style={{ fontWeight: 700, marginBottom: '6px' }}>கணினி பணப்பிரிப்பு</div>
                                             <div className="denomination-display-grid vertical">
                                                 {denominations.map(note => {
                                                     const count = data.counts[note] || 0;
                                                     const total = count * note;
                                                     return (
-                                                        <div className="denomination-display-row" key={note}>
+                                                        <div className="denomination-display-row" key={`computer-${note}`}>
                                                             <span>{`₹ ${note}`}</span>
                                                             <span>x</span>
                                                             <span>{count.toLocaleString('en-IN')}</span>
@@ -195,8 +266,29 @@ const MoiDetailsView = ({ summary, tableSummary, totalDenominations, perTableDen
                                                 <span>மொத்தம்:</span>
                                                 <span>₹ {data.totalAmount.toLocaleString('en-IN')}</span>
                                             </div>
+                                            <div style={{ fontWeight: 700, margin: '10px 0 6px' }}>கையில் உள்ள பணப்பிரிப்பு</div>
+                                            <div className="denomination-display-grid vertical">
+                                                {denominations.map(note => {
+                                                    const count = handData.counts[note] || 0;
+                                                    const total = count * note;
+                                                    return (
+                                                        <div className="denomination-display-row" key={`hand-${note}`}>
+                                                            <span>{`₹ ${note}`}</span>
+                                                            <span>x</span>
+                                                            <span>{count.toLocaleString('en-IN')}</span>
+                                                            <span>=</span>
+                                                            <span>{`₹ ${total.toLocaleString('en-IN')}`}</span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                            <div className="table-total-summary">
+                                                <span>மொத்தம்:</span>
+                                                <span>₹ {handData.totalAmount.toLocaleString('en-IN')}</span>
+                                            </div>
                                         </div>
-                                    ))}
+                                    );
+                                    })}
                                 </div>
                             </div>
                         ) : (
@@ -273,14 +365,14 @@ const MoiDetailsView = ({ summary, tableSummary, totalDenominations, perTableDen
                 
                 <aside className="moi-details-sidebar">
                     <section className="cash-tally-section">
-                        <h2>மொத்த பணப்பிரிப்பு விபரம்</h2>
+                        <h2>கணினி பணப்பிரிப்பு</h2>
                         <div className="table-denomination-card" style={{ backgroundColor: '#fff', border: '1px solid var(--primary-color)'}}>
                              <div className="denomination-display-grid vertical">
                                 {denominations.map(note => {
                                     const count = totalDenominations.counts[note] || 0;
                                     const total = count * note;
                                     return (
-                                        <div className="denomination-display-row" key={note}>
+                                        <div className="denomination-display-row" key={`computer-${note}`}>
                                             <span>{`₹ ${note}`}</span>
                                             <span>x</span>
                                             <span>{count.toLocaleString('en-IN')}</span>
@@ -293,6 +385,30 @@ const MoiDetailsView = ({ summary, tableSummary, totalDenominations, perTableDen
                             <div className="table-total-summary">
                                 <span>மொத்தம்:</span>
                                 <span>₹ {totalDenominations.totalAmount.toLocaleString('en-IN')}</span>
+                            </div>
+                        </div>
+                    </section>
+                    <section className="cash-tally-section" style={{ marginTop: '1rem' }}>
+                        <h2>கையில் உள்ள பணப்பிரிப்பு</h2>
+                        <div className="table-denomination-card" style={{ backgroundColor: '#fff', border: '1px solid var(--primary-color)'}}>
+                             <div className="denomination-display-grid vertical">
+                                {denominations.map(note => {
+                                    const count = handDenominations.counts[note] || 0;
+                                    const total = count * note;
+                                    return (
+                                        <div className="denomination-display-row" key={`hand-${note}`}>
+                                            <span>{`₹ ${note}`}</span>
+                                            <span>x</span>
+                                            <span>{count.toLocaleString('en-IN')}</span>
+                                            <span>=</span>
+                                            <span>{`₹ ${total.toLocaleString('en-IN')}`}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="table-total-summary">
+                                <span>மொத்தம்:</span>
+                                <span>₹ {handDenominations.totalAmount.toLocaleString('en-IN')}</span>
                             </div>
                         </div>
                     </section>
@@ -463,7 +579,7 @@ const TownVerificationView = ({ moiEntries, setMoiEntries, event }) => {
 
 
 // --- Main MasterDashboard Component ---
-export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBack, reloadAllData, loggedInTable, onSyncMembers, isSyncingMembers }) {
+export default function MasterDashboard({ event, settings, moiEntries, setMoiEntries, onBack, reloadAllData, loggedInTable, onSyncMembers, isSyncingMembers }) {
     const [activeView, setActiveView] = useState('all'); // 'all', 'details', 'uncle', 'town'
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isBatchPrinting, setIsBatchPrinting] = useState(false);
@@ -513,6 +629,42 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
         });
     }, [filteredMoiEntries]);
 
+    const resolveHandDenominations = (entry) => {
+        if (!entry) return null;
+        if (entry.receivedDenominations) return entry.receivedDenominations;
+        if (entry.denominations && entry.givenDenominations) {
+            const merged = {};
+            denominations.forEach(note => {
+                const net = parseInt(entry.denominations?.[note], 10) || 0;
+                const given = parseInt(entry.givenDenominations?.[note], 10) || 0;
+                const received = net + given;
+                if (received !== 0) merged[note] = received;
+            });
+            return merged;
+        }
+        return entry.denominations || null;
+    };
+
+    const getStoredTally = (tableId) => {
+        if (typeof window === 'undefined') return null;
+        const eventId = event?.id || 'event';
+        const key = `moibook_tally_${eventId}_${tableId}`;
+        try {
+            const raw = window.localStorage?.getItem?.(key);
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            const normalized = {};
+            denominations.forEach(note => {
+                const value = parsed?.[note];
+                const count = parseInt(value, 10) || 0;
+                normalized[note] = count;
+            });
+            return normalized;
+        } catch (err) {
+            return null;
+        }
+    };
+
     const totalDenominations = useMemo(() => {
         const counts = denominations.reduce((acc, note) => ({ ...acc, [note]: 0 }), {});
         // Only include normal moi entries; skip expense/change so cash matches moi amount
@@ -528,6 +680,38 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
         const totalAmount = denominations.reduce((sum, note) => sum + (counts[note] * note), 0);
         return { counts, totalAmount };
     }, [filteredMoiEntries]);
+
+    const handDenominations = useMemo(() => {
+        const counts = denominations.reduce((acc, note) => ({ ...acc, [note]: 0 }), {});
+        const tableIds = tableSummary.map(t => t.id);
+        let hasStored = false;
+
+        tableIds.forEach((tableId) => {
+            const stored = getStoredTally(tableId);
+            if (stored) {
+                hasStored = true;
+                denominations.forEach(note => {
+                    counts[note] += stored[note] || 0;
+                });
+            }
+        });
+
+        if (!hasStored) {
+            filteredMoiEntries.forEach(entry => {
+                if (entry.type === 'expense' || entry.type === 'change') return;
+                const source = resolveHandDenominations(entry);
+                if (source) {
+                    denominations.forEach(note => {
+                        const count = parseInt(source[note], 10) || 0;
+                        counts[note] += count;
+                    });
+                }
+            });
+        }
+
+        const totalAmount = denominations.reduce((sum, note) => sum + (counts[note] * note), 0);
+        return { counts, totalAmount };
+    }, [filteredMoiEntries, tableSummary]);
 
     const perTableDenominations = useMemo(() => {
         const tableDenomMap = new Map();
@@ -555,6 +739,52 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
             return numA - numB;
         });
     }, [filteredMoiEntries]);
+
+    const perTableHandDenominations = useMemo(() => {
+        const tableDenomMap = new Map();
+        const tableIds = tableSummary.map(t => t.id);
+
+        tableIds.forEach((tableId) => {
+            const stored = getStoredTally(tableId);
+            const counts = denominations.reduce((acc, note) => ({...acc, [note]: 0}), {});
+            if (stored) {
+                denominations.forEach(note => {
+                    counts[note] = stored[note] || 0;
+                });
+            }
+            tableDenomMap.set(tableId, {
+                counts,
+                totalAmount: denominations.reduce((sum, note) => sum + (counts[note] * note), 0)
+            });
+        });
+
+        if (!tableIds.length) {
+            filteredMoiEntries.forEach(entry => {
+                if (entry.type === 'expense' || entry.type === 'change') return;
+                const source = resolveHandDenominations(entry);
+                if (entry.table && source) {
+                    if (!tableDenomMap.has(entry.table)) {
+                        tableDenomMap.set(entry.table, {
+                            counts: denominations.reduce((acc, note) => ({...acc, [note]: 0}), {}),
+                            totalAmount: 0
+                        });
+                    }
+                    const tableData = tableDenomMap.get(entry.table);
+                    denominations.forEach(note => {
+                        const count = parseInt(source[note], 10) || 0;
+                        tableData.counts[note] += count;
+                    });
+                    tableData.totalAmount = denominations.reduce((sum, note) => sum + (tableData.counts[note] * note), 0);
+                }
+            });
+        }
+
+        return Array.from(tableDenomMap.entries()).sort(([tableA], [tableB]) => {
+            const numA = parseInt(tableA.replace('table', ''), 10);
+            const numB = parseInt(tableB.replace('table', ''), 10);
+            return numA - numB;
+        });
+    }, [filteredMoiEntries, tableSummary]);
 
     // Find entries that are missing denomination breakdown (root cause for total mismatches)
     const missingDenominationEntries = useMemo(() => {
@@ -686,16 +916,16 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
         // Prepare denomination data for ALL tables
         const denominationData = {};
         denominations.forEach(note => {
-            const count = totalDenominations.counts[note] || 0;
+            const count = handDenominations.counts[note] || 0;
             if (count > 0) {
                 denominationData[note] = count;
             }
         });
-        renderDenominationPrint(denominationData, perTableDenominations, tableSummary);
+        renderDenominationPrint(denominationData, perTableHandDenominations, tableSummary);
     };
 
     const handlePrintSingleTable = (tableId) => {
-        const tableEntry = perTableDenominations.find(([id]) => id === tableId);
+        const tableEntry = perTableHandDenominations.find(([id]) => id === tableId);
         if (!tableEntry) {
             alert('இந்த மேசைக்கான பணப்பிரிப்பு இல்லை.');
             return;
@@ -755,7 +985,7 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
         const fileName = `MoiReport_${eventId}_${firstName}_${eventDate}`;
         
         // CRITICAL: Use filteredMoiEntries to export only current event's data
-        await exportTamilPdf(filteredMoiEntries, event, fileName);
+        await exportTamilPdf(filteredMoiEntries, event, fileName, settings);
     };
 
     const handleExportExcel = () => {
@@ -781,7 +1011,7 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
     const handleExportTownBasedPdf = async () => {
         const fileName = `MoiReport_TownBased_${event.eventName.replace(/\s/g, '_')}_${event.date}`;
         // CRITICAL: Use filteredMoiEntries to export only current event's data
-        await exportTownBasedPdf(filteredMoiEntries, event, fileName);
+        await exportTownBasedPdf(filteredMoiEntries, event, fileName, settings);
     };
 
     const handleShareWhatsAppPdf = async () => {
@@ -792,7 +1022,7 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
         const eventDate = event.date ? event.date.replace(/-/g, '') : new Date().toISOString().split('T')[0].replace(/-/g, '');
         const fileName = `MoiReport_${eventId}_${firstName}_${eventDate}`;
 
-        const result = await exportTamilPdfForShare(filteredMoiEntries, event, fileName);
+        const result = await exportTamilPdfForShare(filteredMoiEntries, event, fileName, settings);
         if (!result) return;
 
         const { blob, fileName: pdfFileName } = result;
@@ -821,7 +1051,31 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
         URL.revokeObjectURL(url);
 
         const message = encodeURIComponent('மொய் அறிக்கை PDF தயார். Whatsapp‑ல் attach செய்து அனுப்பவும்.');
-        window.open(`https://wa.me/?text=${message}`, '_blank');
+        const inputNumber = window.prompt('Client WhatsApp Mobile Number (எடுத்துக்காட்டு: 9876543210 அல்லது +919876543210):');
+        if (!inputNumber) {
+            alert('மொபைல் நம்பர் இல்லாமல் WhatsApp அனுப்ப முடியாது.');
+            return;
+        }
+        const digits = inputNumber.replace(/\D/g, '');
+        if (!digits) {
+            alert('சரியான மொபைல் நம்பர் கொடுக்கவும்.');
+            return;
+        }
+        const normalized = digits.length === 10 ? `91${digits}` : digits;
+
+        const appUrl = `whatsapp://send?phone=${normalized}&text=${message}`;
+        const webUrl = `https://wa.me/${normalized}?text=${message}`;
+
+        // Try app protocol first, then always fall back to web after a short delay
+        try {
+            window.location.href = appUrl;
+        } catch (err) {
+            console.warn('WhatsApp app open failed', err);
+        }
+
+        setTimeout(() => {
+            window.open(webUrl, '_blank', 'noopener');
+        }, 600);
         alert('PDF download ஆனது. Whatsapp‑ல் Attach செய்து அனுப்புங்கள்.');
     };
 
@@ -877,7 +1131,9 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
                     summary={summary}
                     tableSummary={tableSummary}
                     totalDenominations={totalDenominations}
+                    handDenominations={handDenominations}
                     perTableDenominations={perTableDenominations}
+                    perTableHandDenominations={perTableHandDenominations}
                     missingDenominationEntries={missingDenominationEntries}
                     tableDenominationVariance={tableDenominationVariance}
                 />;
@@ -909,8 +1165,9 @@ export default function MasterDashboard({ event, moiEntries, setMoiEntries, onBa
                      <button className="icon-button" aria-label="Export Town-based PDF" onClick={handleExportTownBasedPdf} title="ஊர் வாரி PDF அறிக்கை">
                         <span className="icon">location_city</span>
                     </button>
-                    <button className="icon-button" aria-label="Share WhatsApp PDF" onClick={handleShareWhatsAppPdf} title="WhatsApp மூலம் PDF அனுப்பு">
-                        <span className="icon">share</span>
+                    <button className="whatsapp-button" aria-label="Send WhatsApp PDF" onClick={handleShareWhatsAppPdf} title="WhatsApp மூலம் PDF அனுப்பு">
+                        <span className="icon">send</span>
+                        <span>WhatsApp அனுப்பு</span>
                     </button>
                      <button className="icon-button" aria-label="Print Denomination Bill" onClick={handlePrintDenominations}>
                         <span className="icon">receipt_long</span>

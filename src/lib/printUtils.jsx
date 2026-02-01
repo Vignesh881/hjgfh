@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import PosBill from '../components/PosBill_clean.jsx';
+import { loadSettings } from './localStorage.js';
 import DenominationBill from '../components/DenominationBill.jsx';
 
 const RENDER_DPI = 96; // DOM renders at roughly 96 DPI
@@ -86,18 +87,18 @@ const renderPosBillCanvas = async (entry, event) => {
     container.style.width = `${TARGET_CANVAS_WIDTH_PX}px`;
     container.style.padding = '0';
     container.style.margin = '0';
-    container.style.background = '#ffffff';
     container.style.zIndex = '-1';
     container.style.fontFamily = "'Noto Sans Tamil','Latha','TAMu_Kadambri',Arial,sans-serif";
     container.style.overflow = 'visible';
     document.body.appendChild(container);
 
     const root = createRoot(container);
+    const settings = loadSettings ? loadSettings() : {};
 
     await new Promise((resolve) => {
         root.render(
-            <div style={{ width: `${TARGET_CANVAS_WIDTH_PX}px`, background: '#ffffff' }}>
-                <PosBill entry={entry} event={event} />
+            <div style={{ width: `${TARGET_CANVAS_WIDTH_PX}px` }}>
+                <PosBill entry={entry} event={event} settings={settings} />
             </div>
         );
         setTimeout(resolve, 200);
@@ -106,7 +107,7 @@ const renderPosBillCanvas = async (entry, event) => {
     const targetNode = container.firstElementChild || container;
     const elementRect = targetNode.getBoundingClientRect();
     const elementWidthPx = elementRect.width || TARGET_CANVAS_WIDTH_PX;
-    const effectiveScale = Math.min(2.5, Math.max(window.devicePixelRatio || 1, TARGET_PRINT_DPI / RENDER_DPI));
+    const effectiveScale = 1;
     let canvas;
 
     try {
@@ -114,7 +115,7 @@ const renderPosBillCanvas = async (entry, event) => {
             scale: effectiveScale,
             useCORS: true,
             logging: false,
-            backgroundColor: '#ffffff',
+            backgroundColor: null,
             width: elementWidthPx,
             windowWidth: elementWidthPx,
             windowHeight: targetNode.scrollHeight || undefined,
@@ -154,7 +155,7 @@ const normalizeCanvasForPrint = (canvas) => {
         scaledHeight = Math.max(1, Math.round(currentHeight * appliedScale));
     }
 
-    if (Math.abs(appliedScale - 1) < CANVAS_NORMALIZE_THRESHOLD) {
+    if (appliedScale > 1 || Math.abs(appliedScale - 1) < CANVAS_NORMALIZE_THRESHOLD) {
         return canvas;
     }
 

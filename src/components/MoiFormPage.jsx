@@ -4,6 +4,8 @@
 */
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
+import QRCode from 'qrcode';
+import { toPng } from 'html-to-image';
 import DenominationModal from './DenominationModal';
 import EditEntryModal from './EditEntryModal';
 import EditAmountModal from './EditAmountModal';
@@ -204,11 +206,14 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     const [focusedField, setFocusedField] = useState(''); // Track which field is focused
     const [showKeyboardSwitchAlert, setShowKeyboardSwitchAlert] = useState(false);
     const [requiredKeyboardMode, setRequiredKeyboardMode] = useState(''); // 'tamil' or 'english'
+    const [cardState, setCardState] = useState(null);
+    const [isCardSending, setIsCardSending] = useState(false);
     const amountInputRef = useRef(null);
     const phoneInputRef = useRef(null);
     const memberIdInputRef = useRef(null);
     const qrScannerRef = useRef(null);
     const qrReaderIdRef = useRef(`moi-qr-reader-${Math.random().toString(36).slice(2)}`);
+    const cardRef = useRef(null);
     
     // State for modals
     const [selectedEntry, setSelectedEntry] = useState(null);
@@ -218,6 +223,112 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
     const [bulkText, setBulkText] = useState('');
+
+    const getEntrySerialNumber = (entry, fallback) => {
+        const raw = entry?.serialNumber ?? entry?.serial ?? entry?.entryNumber ?? null;
+        const parsed = raw != null ? parseInt(raw, 10) : NaN;
+        if (Number.isFinite(parsed) && parsed > 0) {
+            return parsed;
+        }
+        if (Number.isFinite(fallback) && fallback > 0) {
+            return fallback;
+        }
+        return null;
+    };
+
+    const formatSerialNumber = (value) => {
+        const parsed = value != null ? parseInt(value, 10) : NaN;
+        if (!Number.isFinite(parsed)) return '';
+        return parsed.toString().padStart(4, '0');
+    };
+
+    const buildMemberQrPayload = (member) => {
+        return JSON.stringify({
+            memberCode: member.memberCode || member.memberId || '',
+            name: member.fullName || member.baseName || '',
+            phone: member.phone || '',
+            town: member.town || ''
+        });
+    };
+
+    const openWhatsAppChat = (phoneDigits, message) => {
+        const appUrl = `whatsapp://send?phone=${phoneDigits}&text=${message}`;
+        const webUrl = `https://wa.me/${phoneDigits}?text=${message}`;
+        try {
+            window.location.href = appUrl;
+        } catch (err) {
+            console.warn('WhatsApp app open failed', err);
+        }
+        setTimeout(() => {
+            window.open(webUrl, '_blank', 'noopener');
+        }, 600);
+    };
+
+    const sendMemberIdCardWhatsApp = async (memberData) => {
+        if (isCardSending) return;
+        if (!memberData?.phone) return;
+
+        const digits = String(memberData.phone).replace(/\D/g, '');
+        if (!digits) return;
+        const phoneDigits = digits.length === 10 ? `91${digits}` : digits;
+
+        setIsCardSending(true);
+        try {
+            const qrPayload = buildMemberQrPayload(memberData);
+            const qrDataUrl = await QRCode.toDataURL(qrPayload, { width: 256, margin: 1 });
+            setCardState({ member: memberData, qrDataUrl });
+            await new Promise(resolve => setTimeout(resolve, 120));
+
+            const node = cardRef.current;
+            if (!node) throw new Error('ID card render failed');
+            const imageData = await toPng(node, { cacheBust: true, pixelRatio: 2 });
+
+            const blob = await (await fetch(imageData)).blob();
+            const safeCode = memberData.memberCode || memberData.memberId || 'member';
+            const file = new File([blob], `ID_${safeCode}.png`, { type: 'image/png' });
+
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `ID_${safeCode}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            const orgPhone = settings?.billHeaderPhone || '';
+            const messageText = `வணக்கம்! நீங்கள் MoiBook‑ல் உறுப்பினராக சேர்ந்ததற்கு நன்றி. உங்கள் Member ID Card இணைக்கப்பட்டுள்ளது. தொடர்ந்து உங்கள் ஆதரவு தருமாறு கேட்டுக்கொள்கிறோம். 🙏\nஉங்கள் வீட்டின் விழாவிற்கு எங்களை தொடர்பு கொள்ள ${orgPhone || 'நிறுவண தொலைபேசி எண்'}.`;
+            const message = encodeURIComponent(messageText);
+            openWhatsAppChat(phoneDigits, message);
+        } catch (err) {
+            console.error('Failed to share ID card:', err);
+        } finally {
+            setIsCardSending(false);
+            setCardState(null);
+        }
+    };
+
+    const getNextSerialNumber = (entries, serialMap) => {
+        const serials = entries
+            .map(entry => {
+                const existing = getEntrySerialNumber(entry);
+                if (Number.isFinite(existing)) return existing;
+                const mapped = serialMap ? serialMap.get(entry) : null;
+                return Number.isFinite(mapped) ? mapped : null;
+            })
+            .filter(num => Number.isFinite(num));
+        if (serials.length > 0) {
+            return Math.max(...serials) + 1;
+        }
+        return entries.length + 1;
+    };
+
+    const withSerialNumber = (entry, serialNumber) => {
+        if (!entry || serialNumber == null) return entry;
+        const formatted = formatSerialNumber(serialNumber);
+        if (!formatted || entry.serialNumber === formatted) return entry;
+        return { ...entry, serialNumber: formatted };
+    };
 
     const triggerReceiptPrint = async (entryToPrint) => {
         if (!entryToPrint || !event) {
@@ -582,9 +693,43 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         return uniquePeople;
     }, [formData.townId, moiEntries]);
 
-    const filteredMoiEntries = useMemo(() => {
+    const eventEntries = useMemo(() => (
         // CRITICAL: Filter by eventId FIRST to prevent cross-event data leakage
-        let entries = moiEntries.filter(entry => entry.eventId === event.id);
+        moiEntries.filter(entry => entry.eventId === event.id)
+    ), [moiEntries, event.id]);
+
+    const eventSerialMap = useMemo(() => {
+        const map = new Map();
+        const sorted = [...eventEntries].sort((a, b) => {
+            const aSerial = getEntrySerialNumber(a);
+            const bSerial = getEntrySerialNumber(b);
+            if (Number.isFinite(aSerial) && Number.isFinite(bSerial)) {
+                return aSerial - bSerial;
+            }
+            const aKey = Number.isFinite(aSerial) ? aSerial : (parseInt(a?.id, 10) || 0);
+            const bKey = Number.isFinite(bSerial) ? bSerial : (parseInt(b?.id, 10) || 0);
+            return aKey - bKey;
+        });
+        let seq = 1;
+        for (const entry of sorted) {
+            if (getEntrySerialNumber(entry) == null) {
+                map.set(entry, seq);
+            }
+            seq += 1;
+        }
+        return map;
+    }, [eventEntries]);
+
+    const resolveSerialNumber = (entry) => {
+        const existing = getEntrySerialNumber(entry);
+        if (Number.isFinite(existing)) return existing;
+        const mapped = eventSerialMap.get(entry);
+        if (Number.isFinite(mapped)) return mapped;
+        return null;
+    };
+
+    const filteredMoiEntries = useMemo(() => {
+        let entries = [...eventEntries];
         
         // Then filter by logged in table
         if (loggedInTable) {
@@ -606,7 +751,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         
         // IMPORTANT: Reverse order - newest entries first (top of table)
         return entries.reverse();
-    }, [searchQuery, moiEntries, event.id, loggedInTable]);
+    }, [searchQuery, eventEntries, loggedInTable]);
     
     const handleClearForm = () => {
         setFormData(initialFormState);
@@ -682,6 +827,27 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             profession: person.profession || '',
         }));
     };
+
+    const normalizeDenominationPayload = (payload) => {
+        if (!payload) {
+            return { netDenominations: null, receivedDenominations: null, givenDenominations: null };
+        }
+        if (payload.netDenominations || payload.receivedDenominations || payload.givenDenominations) {
+            return {
+                netDenominations: payload.netDenominations || payload.denominations || null,
+                receivedDenominations: payload.receivedDenominations || null,
+                givenDenominations: payload.givenDenominations || null
+            };
+        }
+        if (typeof payload === 'object') {
+            return {
+                netDenominations: payload,
+                receivedDenominations: payload,
+                givenDenominations: null
+            };
+        }
+        return { netDenominations: null, receivedDenominations: null, givenDenominations: null };
+    };
     
     const handleSave = async (denominationData) => {
        // CRITICAL VALIDATION: Town and Name are mandatory
@@ -701,13 +867,13 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
            return; // Stop the save process
        }
         
-       // CRITICAL: Calculate next ID from current event's entries only (for serial number)
-       const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
-       const nextIdNumber = eventEntries.reduce((max, entry) => Math.max(max, parseInt(entry.id, 10) || 0), 0) + 1;
-       const newId = nextIdNumber.toString().padStart(4, '0');
+    // CRITICAL: Calculate next serial number from current event's entries only
+    const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
+    const nextSerialNumber = getNextSerialNumber(eventEntries, eventSerialMap);
+    const newId = formatSerialNumber(nextSerialNumber);
        const townName = towns.find(t => t.id === formData.townId)?.name || townInputValue;
 
-       // DUPLICATE CHECK: Prevent same name from being added twice within the event (across all tables/towns)
+    // DUPLICATE CHECK: Prevent same name from being added twice within the event (across all tables/towns)
        const fullName = `${formData.initial ? formData.initial + (formData.initial.endsWith('.') ? '' : '.') : ''} ${formData.name}`.trim();
        const normalizedFullName = fullName.trim().toLowerCase();
        
@@ -722,6 +888,25 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
        if (isDuplicate) {
            alert(`⚠️ Duplicate Entry / ஒரே மாதிரியான பதிவு!\n\nபெயர்: ${fullName}\n\nஇந்த பெயர் இந்த விழாவில் ஏற்கனவே உள்ளது. மறுபடியும் add பண்ண முடியாது.\n\n⚠️ Same name already exists in this event!`);
            return; // Stop the save process
+       }
+
+       // DUPLICATE PHONE CHECK: Prevent same phone from being used for a different name
+       if (formData.phone) {
+           const existingPhoneEntry = moiEntries.find(entry => {
+               if (!entry || entry.type === 'expense' || entry.type === 'change') return false;
+               const entryPhone = String(entry.phone || '').trim();
+               if (!entryPhone) return false;
+               return entryPhone === formData.phone.trim();
+           });
+
+           if (existingPhoneEntry) {
+               const existingName = (existingPhoneEntry.name || existingPhoneEntry.baseName || '').trim().toLowerCase();
+               if (existingName && existingName !== normalizedFullName) {
+                   const existingMemberId = existingPhoneEntry.memberId || existingPhoneEntry.memberCode || '';
+                   alert(`⚠️ இந்த mobile number வேறு பெயரில் ஏற்கனவே பதிவு உள்ளது!\n\nMobile: ${formData.phone}\nExisting: ${existingPhoneEntry.name || existingPhoneEntry.baseName}\nMember ID: ${existingMemberId || '-'}\n\nஇதே number‑க்கு புதிய பெயர் பதிவு செய்ய முடியாது.`);
+                   return;
+               }
+           }
        }
 
        // Generate UNIQUE memberId across ALL events
@@ -740,11 +925,14 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                ? Math.max(...allMemberIds) + 1 
                : 1;
            
-           finalMemberId = `UR-${nextMemberId.toString().padStart(4, '0')}`;
+           finalMemberId = `UR-${nextMemberId.toString().padStart(6, '0')}`;
        }
 
-       const newEntry = {
-        id: newId,
+    const { netDenominations, receivedDenominations, givenDenominations } = normalizeDenominationPayload(denominationData);
+
+    const newEntry = {
+     id: newId,
+     serialNumber: newId,
         eventId: event.id, // CRITICAL: Add eventId for proper event isolation
         table: loggedInTable,
         town: townName,
@@ -764,10 +952,25 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         memberId: finalMemberId, // Use globally unique memberId
         amount: parseFloat(formData.amount),
         isMaternalUncle: formData.isMaternalUncle,
-        denominations: denominationData,
+        denominations: netDenominations,
+        receivedDenominations,
+        givenDenominations,
        };
        
        await addMoiEntry(newEntry);
+       if (formData.phone && formData.phone.length === 10) {
+           const memberForCard = {
+               memberCode: finalMemberId,
+               memberId: finalMemberId,
+               fullName: fullName,
+               baseName: formData.name,
+               phone: formData.phone,
+               town: townName,
+               education: formData.education,
+               relationship: formData.relationshipName
+           };
+           await sendMemberIdCardWhatsApp(memberForCard);
+       }
        setIsDenominationModalOpen(false);
        try {
            await triggerReceiptPrint(newEntry);
@@ -777,13 +980,14 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     };
     
     const handleSaveExpense = async (expenseData) => {
-        // CRITICAL: Calculate next ID from current event's entries only
+        // CRITICAL: Calculate next serial number from current event's entries only
         const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
-        const nextIdNumber = eventEntries.reduce((max, entry) => Math.max(max, parseInt(entry.id, 10) || 0), 0) + 1;
-        const newId = nextIdNumber.toString().padStart(4, '0');
+        const nextSerialNumber = getNextSerialNumber(eventEntries, eventSerialMap);
+        const newId = formatSerialNumber(nextSerialNumber);
 
         const newExpenseEntry = {
             id: newId,
+            serialNumber: newId,
             eventId: event.id, // CRITICAL: Add eventId for proper event isolation
             table: loggedInTable,
             name: 'செலவு',
@@ -816,21 +1020,30 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     };
 
     const handleSaveChange = async (changeData) => {
-        // CRITICAL: Calculate next ID from current event's entries only
+        // CRITICAL: Calculate next serial number from current event's entries only
         const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
-        const nextIdNumber = eventEntries.reduce((max, entry) => Math.max(max, parseInt(entry.id, 10) || 0), 0) + 1;
-        const newId = nextIdNumber.toString().padStart(4, '0');
+        const nextSerialNumber = getNextSerialNumber(eventEntries, eventSerialMap);
+        const newId = formatSerialNumber(nextSerialNumber);
 
         // Calculate the net change in denominations
         const netDenominations = {};
+        const receivedSnapshot = {};
+        const givenSnapshot = {};
         notes.forEach(note => {
             const received = parseInt(changeData.received[note], 10) || 0;
             const given = parseInt(changeData.given[note], 10) || 0;
+            if (received !== 0) {
+                receivedSnapshot[note] = received;
+            }
+            if (given !== 0) {
+                givenSnapshot[note] = given;
+            }
             netDenominations[note] = received - given;
         });
 
         const newChangeEntry = {
             id: newId,
+            serialNumber: newId,
             eventId: event.id, // CRITICAL: Add eventId for proper event isolation
             table: loggedInTable,
             name: 'சில்லறை மாற்றுதல்',
@@ -839,6 +1052,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             type: 'change', // Use 'change' type to represent this transaction
             town: '—',
             denominations: netDenominations, // Store the net change
+            receivedDenominations: receivedSnapshot,
+            givenDenominations: givenSnapshot,
             // Fill other fields to avoid errors
             street: '',
             initial: '',
@@ -865,7 +1080,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         }
 
         const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
-        let nextIdNumber = eventEntries.reduce((max, entry) => Math.max(max, parseInt(entry.id, 10) || 0), 0) + 1;
+        let nextIdNumber = getNextSerialNumber(eventEntries, eventSerialMap);
 
         const allMemberIds = moiEntries
             .map(entry => entry.memberId)
@@ -906,16 +1121,17 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                 continue;
             }
 
-            const newId = nextIdNumber.toString().padStart(4, '0');
+            const newId = formatSerialNumber(nextIdNumber);
             nextIdNumber += 1;
 
-            const finalMemberId = `UR-${nextMemberSeq.toString().padStart(4, '0')}`;
+            const finalMemberId = `UR-${nextMemberSeq.toString().padStart(6, '0')}`;
             nextMemberSeq += 1;
 
             const entryTown = town || townInputValue || '';
 
             const newEntry = {
                 id: newId,
+                serialNumber: newId,
                 eventId: event.id,
                 table: loggedInTable,
                 town: entryTown,
@@ -1033,23 +1249,23 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     };
     
     // Handlers for opening modals
-    const handleRowClick = (entry) => {
+    const handleRowClick = (entry, serialNumber) => {
         if (entry.type === 'expense' || entry.type === 'change') return;
-        setSelectedEntry(entry);
+        setSelectedEntry(withSerialNumber(entry, serialNumber));
         setIsEditModalOpen(true);
     };
 
-    const handleAmountClick = (e, entry) => {
+    const handleAmountClick = (e, entry, serialNumber) => {
         if (entry.type === 'expense' || entry.type === 'change') return;
         e.stopPropagation(); // Prevent row click
-        setSelectedEntry(entry);
+        setSelectedEntry(withSerialNumber(entry, serialNumber));
         setIsAmountModalOpen(true);
     };
 
-    const handleDeleteClick = (e, entry) => {
+    const handleDeleteClick = (e, entry, serialNumber) => {
         if (entry.type === 'expense' || entry.type === 'change') return;
         e.stopPropagation(); // Prevent row click
-        setSelectedEntry(entry);
+        setSelectedEntry(withSerialNumber(entry, serialNumber));
         setIsDeleteModalOpen(true);
     };
 
@@ -1068,7 +1284,14 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     const handleUpdateAmount = async (entryId, newAmount, denominationData, usedPin) => {
         const entryToUpdate = moiEntries.find(e => e.id === entryId);
         if (entryToUpdate) {
-            const updatedEntry = { ...entryToUpdate, amount: newAmount, denominations: denominationData };
+            const { netDenominations, receivedDenominations, givenDenominations } = normalizeDenominationPayload(denominationData);
+            const updatedEntry = {
+                ...entryToUpdate,
+                amount: newAmount,
+                denominations: netDenominations,
+                receivedDenominations: receivedDenominations || entryToUpdate.receivedDenominations || netDenominations,
+                givenDenominations: givenDenominations || entryToUpdate.givenDenominations || null
+            };
             await updateMoiEntry(updatedEntry);
             
             // Update PIN usage if PIN was used (for decreasing amounts)
@@ -1455,17 +1678,17 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
 
             <form className="event-form" onSubmit={(e) => e.preventDefault()}>
                 <div className="moi-form-grid">
-                    {/* Row 1 */}
-                    <div className="input-group floating-label-group col-span-3" style={{position: 'relative'}}>
-                        <input 
-                            type="text" 
-                            name="memberId" 
-                            value={formData.memberId} 
-                            onChange={handleInputChange} 
+                    {/* Row 1: Member Id + Town */}
+                    <div className="input-group floating-label-group col-span-4" style={{position: 'relative'}}>
+                        <input
+                            type="text"
+                            name="memberId"
+                            value={formData.memberId}
+                            onChange={handleInputChange}
                             ref={memberIdInputRef}
                             placeholder=" "
                             style={{
-                                borderColor: memberSearchStatus === 'found' ? '#4CAF50' : 
+                                borderColor: memberSearchStatus === 'found' ? '#4CAF50' :
                                             memberSearchStatus === 'not-found' ? '#f44336' : ''
                             }}
                         />
@@ -1505,27 +1728,20 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </small>
                         )}
                     </div>
-                    <div className="form-group floating-label-group col-span-5" style={{position: 'relative'}}>
-                         <SearchableComboBox 
-                            options={filteredTowns} 
+                    <div className="form-group floating-label-group col-span-8" style={{position: 'relative'}}>
+                         <SearchableComboBox
+                            options={filteredTowns}
                             value={townInputValue}
                             enableShortcuts={true}
                             shortcutExpander={expandShortcutOnSpace}
                             onValueChange={(val) => {
-                                // Don't auto-expand while typing - just show hints
-                                // User must press Space to expand
-                                
-                                // Check for shortcut suggestions
                                 const suggestion = getShortcutSuggestion(val);
                                 if (suggestion && val.length >= 2) {
                                     setTownShortcutHint(`${suggestion.shortcut} → ${suggestion.town}`);
                                 } else {
                                     setTownShortcutHint('');
                                 }
-                                
-                                // Set value as-is (no auto-expand)
                                 setTownInputValue(val);
-                                
                                 if (!filteredTowns.some(t => t.name === val)) {
                                   setFormData(p => ({...p, townId: ''}));
                                 }
@@ -1536,7 +1752,6 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                                 setTownShortcutHint('');
                             }}
                             onBlur={() => {
-                                // Track town usage for shortcut suggestions
                                 if (townInputValue && townInputValue.trim().length > 0) {
                                     try {
                                         const town = townInputValue.trim();
@@ -1547,12 +1762,9 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                                         console.error('Error tracking town usage:', e);
                                     }
                                 }
-                                
-                                // Auto-correct when user leaves the field
                                 const corrected = autoCorrectTownName(townInputValue);
                                 if (corrected !== townInputValue) {
                                     setTownInputValue(corrected);
-                                    // Show brief notification that correction was made
                                     console.log(`Auto-corrected: "${townInputValue}" → "${corrected}"`);
                                 }
                             }}
@@ -1560,8 +1772,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         />
                         <label>
                             ஊர் (shortcuts: cbe/கோ, che/சே, mad/ம...)
-                            <span style={{ 
-                                fontSize: '0.65rem', 
+                            <span style={{
+                                fontSize: '0.65rem',
                                 color: '#2196F3',
                                 marginLeft: '3px',
                                 fontWeight: 'bold'
@@ -1582,11 +1794,15 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </small>
                         )}
                     </div>
-                    <div className="form-group floating-label-group col-span-4" style={{ position: 'relative' }}>
-                        <input 
-                            type="text" 
-                            name="street" 
-                            value={formData.street} 
+
+                    <div className="full-width" style={{ height: 0 }} />
+
+                    {/* Row 2: Street + Initial + Name */}
+                    <div className="form-group floating-label-group col-span-3" style={{ position: 'relative' }}>
+                        <input
+                            type="text"
+                            name="street"
+                            value={formData.street}
                             onChange={handleInputChange}
                             onFocus={() => handleFieldFocus('street')}
                             onBlur={handleFieldBlur}
@@ -1594,8 +1810,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         />
                         <label>
                             தெரு/ இருப்பு
-                            <span style={{ 
-                                fontSize: '0.65rem', 
+                            <span style={{
+                                fontSize: '0.65rem',
                                 color: '#2196F3',
                                 marginLeft: '3px',
                                 fontWeight: 'bold'
@@ -1604,29 +1820,27 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </span>
                         </label>
                     </div>
-                    
-                    {/* Row 2 */}
-                    <div className="form-group floating-label-group col-span-1" style={{ position: 'relative' }}>
-                        <input 
-                            type="text" 
-                            name="initial" 
-                            value={formData.initial} 
+                    <div className="form-group floating-label-group col-span-2" style={{ position: 'relative' }}>
+                        <input
+                            type="text"
+                            name="initial"
+                            value={formData.initial}
                             onChange={handleInputChange}
                             onFocus={() => setFocusedField('initial')}
                             onBlur={() => setFocusedField('')}
                             placeholder=" "
                             style={{
-                                borderColor: focusedField === 'initial' ? 
-                                    (currentInputLanguage === 'tamil' ? '#2196F3' : 
+                                borderColor: focusedField === 'initial' ?
+                                    (currentInputLanguage === 'tamil' ? '#2196F3' :
                                      currentInputLanguage === 'english' ? '#4CAF50' : '#ccc') : '#ccc',
                                 borderWidth: focusedField === 'initial' ? '2px' : '1px',
                                 transition: 'all 0.2s ease'
                             }}
                         />
                         <label>
-                            Initial 
-                            <span style={{ 
-                                fontSize: '0.65rem', 
+                            Initial
+                            <span style={{
+                                fontSize: '0.65rem',
                                 color: '#888',
                                 marginLeft: '3px',
                                 fontWeight: 'normal'
@@ -1641,7 +1855,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                                 left: 0,
                                 marginTop: '4px',
                                 padding: '4px 8px',
-                                backgroundColor: currentInputLanguage === 'tamil' ? '#2196F3' : 
+                                backgroundColor: currentInputLanguage === 'tamil' ? '#2196F3' :
                                                currentInputLanguage === 'english' ? '#4CAF50' : '#9E9E9E',
                                 color: 'white',
                                 borderRadius: '4px',
@@ -1656,13 +1870,12 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </div>
                         )}
                     </div>
-                    <div className="form-group floating-label-group col-span-5" style={{ position: 'relative' }}>
+                    <div className="form-group floating-label-group col-span-7" style={{ position: 'relative' }}>
                          <SearchableComboBox
                             options={filteredPeople}
                             value={formData.name}
                             onValueChange={(val) => {
                                 setFormData(p => ({ ...p, name: val }));
-                                // Show hint for name shortcuts
                                 const hint = getNameSuggestion(val);
                                 setNameShortcutHint(hint || '');
                             }}
@@ -1673,8 +1886,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         />
                         <label>
                             பெயர்
-                            <span style={{ 
-                                fontSize: '0.65rem', 
+                            <span style={{
+                                fontSize: '0.65rem',
                                 color: '#2196F3',
                                 marginLeft: '3px',
                                 fontWeight: 'bold'
@@ -1701,11 +1914,15 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </div>
                         )}
                     </div>
+
+                    <div className="full-width" style={{ height: 0 }} />
+
+                    {/* Row 3: Parent Name + Profession + Education */}
                     <div className="form-group floating-label-group col-span-3" style={{ position: 'relative' }}>
-                        <input 
-                            type="text" 
-                            name="relationshipName" 
-                            value={formData.relationshipName} 
+                        <input
+                            type="text"
+                            name="relationshipName"
+                            value={formData.relationshipName}
                             onChange={handleInputChange}
                             onKeyDown={handleShortcutKeyDown('relationshipName')}
                             onFocus={() => handleFieldFocus('relationshipName')}
@@ -1714,8 +1931,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         />
                         <label>
                             பெற்றோர் பெயர்
-                            <span style={{ 
-                                fontSize: '0.65rem', 
+                            <span style={{
+                                fontSize: '0.65rem',
                                 color: '#2196F3',
                                 marginLeft: '3px',
                                 fontWeight: 'bold'
@@ -1742,60 +1959,11 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </div>
                         )}
                     </div>
-                     <div className="form-group col-span-3">
-                        <label style={{fontWeight: 'normal', position: 'relative', top: '-0.5rem'}}>உறவு முறை</label>
-                        <div className="radio-group" style={{paddingTop: '0'}}>
-                            <label>
-                                <input 
-                                    type="radio" 
-                                    name="relationshipType" 
-                                    value="son" 
-                                    checked={formData.relationshipType === 'son'} 
-                                    onChange={handleInputChange}
-                                    disabled={!formData.relationshipName}
-                                /> மகன்
-                            </label>
-                            <label>
-                                <input 
-                                    type="radio" 
-                                    name="relationshipType" 
-                                    value="daughter" 
-                                    checked={formData.relationshipType === 'daughter'} 
-                                    onChange={handleInputChange}
-                                    disabled={!formData.relationshipName}
-                                />மகள்
-                            </label>
-                        </div>
-                    </div>
-
-                    {/* Row 3 */}
                     <div className="form-group floating-label-group col-span-3" style={{ position: 'relative' }}>
-                        <input 
-                            type="text" 
-                            name="education" 
-                            value={formData.education} 
-                            onChange={handleInputChange}
-                            onFocus={() => handleFieldFocus('education')}
-                            onBlur={handleFieldBlur}
-                            placeholder=" " 
-                        />
-                        <label>
-                            படிப்பு
-                            <span style={{ 
-                                fontSize: '0.65rem', 
-                                color: '#4CAF50',
-                                marginLeft: '3px',
-                                fontWeight: 'bold'
-                            }}>
-                                ⌨️EN
-                            </span>
-                        </label>
-                    </div>
-                    <div className="form-group floating-label-group col-span-3" style={{ position: 'relative' }}>
-                        <input 
-                            type="text" 
-                            name="profession" 
-                            value={formData.profession} 
+                        <input
+                            type="text"
+                            name="profession"
+                            value={formData.profession}
                             onChange={handleInputChange}
                             onFocus={() => handleFieldFocus('profession')}
                             onBlur={handleFieldBlur}
@@ -1803,8 +1971,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         />
                         <label>
                             தொழில்
-                            <span style={{ 
-                                fontSize: '0.65rem', 
+                            <span style={{
+                                fontSize: '0.65rem',
                                 color: '#2196F3',
                                 marginLeft: '3px',
                                 fontWeight: 'bold'
@@ -1813,30 +1981,79 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </span>
                         </label>
                     </div>
-                     <div className="form-group floating-label-group col-span-3">
-                        <input 
-                            type="tel" 
-                            name="phone" 
-                            value={formData.phone} 
-                            onChange={handleInputChange} 
+                    <div className="form-group floating-label-group col-span-3" style={{ position: 'relative' }}>
+                        <input
+                            type="text"
+                            name="education"
+                            value={formData.education}
+                            onChange={handleInputChange}
+                            onFocus={() => handleFieldFocus('education')}
+                            onBlur={handleFieldBlur}
+                            placeholder=" "
+                        />
+                        <label>
+                            படிப்பு
+                            <span style={{
+                                fontSize: '0.65rem',
+                                color: '#4CAF50',
+                                marginLeft: '3px',
+                                fontWeight: 'bold'
+                            }}>
+                                ⌨️EN
+                            </span>
+                        </label>
+                    </div>
+                    <div className="form-group floating-label-group col-span-3">
+                        <input
+                            type="tel"
+                            name="phone"
+                            value={formData.phone}
+                            onChange={handleInputChange}
                             onBlur={handlePhoneBlur}
                             ref={phoneInputRef}
                             placeholder=" "
                         />
                         <label>தொலைபேசி எண்</label>
                     </div>
+
+                    <div className="full-width" style={{ height: 0 }} />
+
+                    {/* Row 4: Relationship Type + Maternal + Note + Amount */}
+                    <div className="form-group col-span-1">
+                        <label style={{fontWeight: 'normal', position: 'relative', top: '-0.5rem'}}>உறவு முறை</label>
+                        <div className="radio-group" style={{paddingTop: '0'}}>
+                            <label>
+                                <input
+                                    type="radio"
+                                    name="relationshipType"
+                                    value="son"
+                                    checked={formData.relationshipType === 'son'}
+                                    onChange={handleInputChange}
+                                    disabled={!formData.relationshipName}
+                                /> மகன்
+                            </label>
+                            <label>
+                                <input
+                                    type="radio"
+                                    name="relationshipType"
+                                    value="daughter"
+                                    checked={formData.relationshipType === 'daughter'}
+                                    onChange={handleInputChange}
+                                    disabled={!formData.relationshipName}
+                                />மகள்
+                            </label>
+                        </div>
+                    </div>
                      <div className="form-group col-span-3">
                         <div className="checkbox-group" style={{paddingTop: '1.5rem'}}>
                            <label><input type="checkbox" name="isMaternalUncle" checked={formData.isMaternalUncle} onChange={handleInputChange}/> தாய்மாமன்</label>
                         </div>
                     </div>
-                    
-                    {/* Row 4: Note and Amount */}
-                    <div className="form-group floating-label-group col-span-8" style={{ position: 'relative' }}>
-                        <input 
-                            type="text" 
-                            name="note" 
-                            value={formData.note} 
+                    <div className="form-group floating-label-group col-span-4" style={{ position: 'relative' }}>
+                        <input
+                            type="text"
+                            name="note"
+                            value={formData.note}
                             onChange={handleInputChange}
                             onFocus={() => handleFieldFocus('note')}
                             onBlur={handleFieldBlur}
@@ -1844,8 +2061,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         />
                         <label>
                             குறிப்பு
-                            <span style={{ 
-                                fontSize: '0.65rem', 
+                            <span style={{
+                                fontSize: '0.65rem',
                                 color: '#2196F3',
                                 marginLeft: '3px',
                                 fontWeight: 'bold'
@@ -1855,20 +2072,20 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         </label>
                     </div>
                      <div className="form-group floating-label-group col-span-4" style={{ position: 'relative' }}>
-                        <input 
-                            type="tel" 
-                            name="amount" 
-                            value={formData.amount} 
-                            onChange={handleInputChange} 
-                            ref={amountInputRef} 
-                            onKeyDown={handleAmountKeyDown} 
-                            className="amount-input" 
+                        <input
+                            type="tel"
+                            name="amount"
+                            value={formData.amount}
+                            onChange={handleInputChange}
+                            ref={amountInputRef}
+                            onKeyDown={handleAmountKeyDown}
+                            className="amount-input"
                             placeholder=" "
                         />
                         <label>
                             மொய் தொகை
-                            <span style={{ 
-                                fontSize: '0.65rem', 
+                            <span style={{
+                                fontSize: '0.65rem',
                                 color: '#FF9800',
                                 marginLeft: '3px',
                                 fontWeight: 'bold'
@@ -1919,14 +2136,19 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         </tr>
                     </thead>
                      <tbody>
-                        {filteredMoiEntries.map(entry => {
+                        {filteredMoiEntries.map((entry) => {
                             const isActionable = entry.type !== 'expense' && entry.type !== 'change';
                             const isExchange = entry.type === 'change' && entry.amount === 0;
+                            const displaySerialNumber = resolveSerialNumber(entry);
+                            const displaySerialText = formatSerialNumber(displaySerialNumber)
+                                || entry.serialNumber
+                                || entry.entryNumber
+                                || entry.id;
 
                             return (
                                 <tr
                                     key={entry.id}
-                                    onClick={() => isActionable && handleRowClick(entry)}
+                                    onClick={() => isActionable && handleRowClick(entry, displaySerialNumber)}
                                     className={
                                         entry.type === 'expense' ? 'expense-row' :
                                         entry.type === 'change' ? 'change-row' : ''
@@ -1934,7 +2156,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                                     style={{ cursor: isActionable ? 'pointer' : 'default' }}
                                 >
                                     <td>
-                                        <span>{entry.id}</span>
+                                        <span>{displaySerialText}</span>
                                         <span className="sub-text">{entry.memberId}</span>
                                     </td>
                                     <td>
@@ -1957,12 +2179,12 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                                         </span>
                                         {entry.type !== 'expense' && entry.type !== 'change' && entry.note && <span className="sub-text">குறிப்பு: {entry.note}</span>}
                                     </td>
-                                    <td className="amount-cell" onClick={(e) => isActionable && handleAmountClick(e, entry)}>
+                                    <td className="amount-cell" onClick={(e) => isActionable && handleAmountClick(e, entry, displaySerialNumber)}>
                                         {isExchange ? '—' : `₹${Math.abs(entry.amount).toLocaleString('en-IN')}`}
                                     </td>
                                     <td className="delete-cell">
                                         {isActionable && (
-                                            <span className="icon" onClick={(e) => handleDeleteClick(e, entry)}>delete</span>
+                                            <span className="icon" onClick={(e) => handleDeleteClick(e, entry, displaySerialNumber)}>delete</span>
                                         )}
                                     </td>
                                 </tr>
@@ -2583,6 +2805,46 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                     onClose={() => setIsDeleteModalOpen(false)}
                     updatePinUsage={updatePinUsage}
                 />
+            )}
+
+            {cardState && (
+                <div className="member-idcard-export" aria-hidden="true">
+                    <div className="member-idcard" ref={cardRef}>
+                        <div className="member-idcard-header">
+                            <div className="member-idcard-header-left">
+                                <MoiBookIcon size={24} />
+                                <div>
+                                    <div className="member-idcard-title">MoiBook Member ID</div>
+                                    <div className="member-idcard-code">{cardState.member.memberCode}</div>
+                                </div>
+                            </div>
+                            <div className="member-idcard-org">
+                                <div className="member-idcard-org-title">நிறுவனம்</div>
+                                <div className="member-idcard-org-row">🏢 {settings?.billHeaderAddress || '-'}</div>
+                                <div className="member-idcard-org-row">📞 {settings?.billHeaderPhone || '-'}</div>
+                            </div>
+                        </div>
+                        <div className="member-idcard-body">
+                            <div className="member-idcard-details">
+                                <div className="member-idcard-name">
+                                    {cardState.member.fullName || cardState.member.baseName}
+                                </div>
+                                <div className="member-idcard-row">📞 {cardState.member.phone || '-'}</div>
+                                <div className="member-idcard-row">🏠 {cardState.member.town || '-'}</div>
+                                <div className="member-idcard-row">🎓 {cardState.member.education || '-'}</div>
+                                <div className="member-idcard-row">🤝 {cardState.member.relationship || '-'}</div>
+                            </div>
+                            <div className="member-idcard-qr">
+                                <img src={cardState.qrDataUrl} alt="Member QR" />
+                            </div>
+                        </div>
+                        <div className="member-idcard-footer">
+                            <div className="member-idcard-qr-text">
+                                QR Code: {cardState.member.memberCode}
+                            </div>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

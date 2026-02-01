@@ -1,5 +1,4 @@
 ﻿import React from 'react';
-import { MoiBookIcon } from './MoiBookLogo.jsx';
 
 export default function DenominationBill({ denominations, event, moiEntries = [], tableSummary = [], perTableDenominations = [] }) {
   const eventId = event?.id || event?.eventId || null;
@@ -26,7 +25,7 @@ export default function DenominationBill({ denominations, event, moiEntries = []
   const expenses = moiEntries.filter(e => e.type === 'expense');
   const intermediateMoneyEntries = moiEntries.filter(e => e.type === 'change');
   
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + Math.abs(e.amount || 0), 0);
   const totalIntermediateMoney = intermediateMoneyEntries.reduce((sum, e) => sum + e.amount, 0);
 
   const billStyles = {
@@ -50,18 +49,10 @@ export default function DenominationBill({ denominations, event, moiEntries = []
       background: 'linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%)'
     },
     
-    logoContainer: {
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: '8px',
-      marginBottom: '6px'
-    },
-    
     title: {
       fontSize: '16px',
       fontWeight: 'bold',
-      color: '#4CAF50',
+      color: '#000',
       textShadow: '1px 1px 2px rgba(0,0,0,0.1)'
     }
   };
@@ -70,10 +61,7 @@ export default function DenominationBill({ denominations, event, moiEntries = []
     <div style={billStyles.posBill}>
       {/* Header - மொய்புக் Title with Logo */}
       <header style={billStyles.billHeader}>
-        <div style={billStyles.logoContainer}>
-          <MoiBookIcon size={32} />
-          <div style={billStyles.title}>மொய்புக்</div>
-        </div>
+        <div style={billStyles.title}>மொய்புக்</div>
         <div style={{ fontSize: '10px', marginTop: '4px', fontWeight: 'bold' }}>
           {event?.eventName || event?.name || 'திருமண விழா'}
         </div>
@@ -82,7 +70,7 @@ export default function DenominationBill({ denominations, event, moiEntries = []
             ({event.eventSide})
           </div>
         )}
-        <div style={{ fontSize: '9px', marginTop: '2px' }}>
+        <div style={{ fontSize: '9px', marginTop: '2px', color: '#000' }}>
           நாள்: {event?.date || new Date().toLocaleDateString('en-GB')}
         </div>
         <div style={{ fontSize: '9px' }}>
@@ -98,12 +86,20 @@ export default function DenominationBill({ denominations, event, moiEntries = []
 
       {/* Denomination Content */}
       <div style={{ padding: '6px' }}>
+        <div style={{
+          fontSize: '11px',
+          fontWeight: 'bold',
+          textAlign: 'center',
+          marginBottom: '6px'
+        }}>
+          கையில் உள்ள பணப்பிரிப்பு
+        </div>
         
         {/* Always show table-wise breakdown like in second image */}
         {!hasMultipleTables ? (
           // Single Table - Skip table breakdown, show only total
           <div style={{ marginBottom: '8px' }}>
-            <div style={{ 
+              <div style={{ 
               fontSize: '12px', 
               fontWeight: 'bold', 
               textAlign: 'center',
@@ -113,7 +109,8 @@ export default function DenominationBill({ denominations, event, moiEntries = []
               margin: '6px 0',
               border: '2px solid #000'
             }}>
-              மொத்த கணக்கு<br/>
+                மொத்த கணக்கு<br/>
+                கையில் உள்ள பணப்பிரிப்பு<br/>
               தாள்களின் எண்ணிக்கை ({overallPersonCount != null ? overallPersonCount : '—'} நபர்கள்)
             </div>
             
@@ -201,6 +198,7 @@ export default function DenominationBill({ denominations, event, moiEntries = []
                     border: '2px solid #000'
                   }}>
                     மேசை {tableNumber}<br/>
+                    கையில் உள்ள பணப்பிரிப்பு<br/>
                     தாள்களின் எண்ணிக்கை ({tablePersonCount} நபர்கள்)
                   </div>
                   
@@ -280,6 +278,7 @@ export default function DenominationBill({ denominations, event, moiEntries = []
                 border: '2px solid #000'
               }}>
                 மொத்த கணக்கு<br/>
+                கையில் உள்ள பணப்பிரிப்பு<br/>
                 தாள்களின் எண்ணிக்கை ({tableSummary.reduce((sum, t) => sum + (t.personCount || 0), 0)} நபர்கள்)
               </div>
               
@@ -451,7 +450,7 @@ export default function DenominationBill({ denominations, event, moiEntries = []
                       textAlign: 'right',
                       width: '30%'
                     }}>
-                      ₹{expense.amount.toLocaleString('en-IN')}
+                      ₹{Math.abs(expense.amount || 0).toLocaleString('en-IN')}
                     </td>
                   </tr>
                 ))}
@@ -559,7 +558,7 @@ export default function DenominationBill({ denominations, event, moiEntries = []
         <div style={{ 
           textAlign: 'center',
           fontSize: '9px',
-          color: '#666'
+          color: '#000'
         }}>
           {new Date().toLocaleString('ta-IN')}
         </div>

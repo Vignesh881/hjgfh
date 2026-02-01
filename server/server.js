@@ -83,6 +83,7 @@ app.post('/api/admin/clear-data', async (req, res) => {
     await pool.query('DELETE FROM registrars');
     await pool.query('DELETE FROM events');
     await pool.query('DELETE FROM settings');
+  await pool.query('DELETE FROM bookings');
 
     res.json({ success: true });
   } catch (err) {
@@ -235,6 +236,50 @@ const mapEventToDbColumns = (event = {}) => {
     raw: JSON.stringify(rawPayload)
   };
 };
+
+const mapBookingToDbColumns = (booking = {}) => {
+  const name = toNullableString(booking.name) ?? '';
+  const phone = toNullableString(booking.phone) ?? '';
+  const eventName = toNullableString(booking.eventName ?? booking.event_name) ?? '';
+  const bookingDate = normalizeDate(booking.date ?? booking.bookingDate ?? booking.booking_date);
+  const bookingTime = toNullableString(booking.time ?? booking.bookingTime ?? booking.booking_time);
+  const invitationCount = booking.invitationCount !== undefined && booking.invitationCount !== null
+    ? (parseInt(booking.invitationCount, 10) || null)
+    : null;
+  const amount = toDecimal(booking.amount);
+  const paymentMethod = toNullableString(booking.paymentMethod ?? booking.payment_method) ?? 'online';
+  const paymentReference = toNullableString(booking.paymentReference ?? booking.payment_reference);
+  const status = toNullableString(booking.status) ?? 'pending';
+
+  return {
+    name,
+    phone,
+    eventName,
+    bookingDate,
+    bookingTime,
+    invitationCount,
+    amount,
+    paymentMethod,
+    paymentReference,
+    status
+  };
+};
+
+const mapBookingRow = (row = {}) => ({
+  id: row.id,
+  name: row.name,
+  phone: row.phone,
+  eventName: row.event_name,
+  date: row.booking_date ? new Date(row.booking_date).toISOString().slice(0, 10) : null,
+  time: row.booking_time,
+  invitationCount: row.invitation_count,
+  amount: row.amount,
+  paymentMethod: row.payment_method,
+  paymentReference: row.payment_reference,
+  status: row.status,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at
+});
 
 app.post('/api/printers/print', async (req, res) => {
   if (process.platform !== 'win32') {
@@ -585,12 +630,14 @@ const mapRowToRegistrar = (row) => {
 
 const mapMoiEntryToDbColumns = (entry = {}) => {
   const numericEventId = toNumericId(entry.eventId ?? entry.event_id);
+  const serialNo = toNumericId(entry.serialNumber ?? entry.serial ?? entry.entryNumber ?? entry.id);
   const contributorName = toNullableString(entry.name ?? entry.contributor_name ?? entry.contributorName) ?? '';
   const note = toNullableString(entry.note ?? entry.notes) ?? '';
   const phone = toNullableString(entry.phone ?? entry.contactNumber) ?? '';
 
   return {
     eventId: numericEventId,
+    serialNo,
     tableNo: toNullableString(entry.table ?? entry.table_no),
     contributorName,
     amount: toDecimal(entry.amount ?? entry.totalAmount),
@@ -620,6 +667,13 @@ const mapRowToMoiEntry = (row) => {
 
   if (row.id != null) {
     entry.id = row.id.toString();
+  }
+
+  if (row.serial_no != null && !entry.serialNumber) {
+    const parsed = parseInt(row.serial_no, 10);
+    if (Number.isFinite(parsed)) {
+      entry.serialNumber = String(parsed).padStart(4, '0');
+    }
   }
 
   if (row.event_id != null) {
@@ -851,7 +905,7 @@ const mapRowToMember = (row) => {
   const member = { ...parsed };
 
   if (row.id != null) {
-    member.id = padId(row.id);
+    member.id = padId(row.id, 6);
   }
 
   if (row.member_code != null) {
@@ -1025,6 +1079,7 @@ const ensureSchema = async () => {
       `CREATE TABLE IF NOT EXISTS moi_entries (
         id INT AUTO_INCREMENT PRIMARY KEY,
         event_id INT NULL,
+        serial_no INT NULL,
         table_no VARCHAR(50) NULL,
         contributor_name VARCHAR(255) NULL,
         amount DECIMAL(12,2) DEFAULT 0,
@@ -1163,6 +1218,7 @@ const ensureSchema = async () => {
 
     const moiEntryColumnAdditions = [
       'ALTER TABLE moi_entries ADD COLUMN event_id INT NULL',
+      'ALTER TABLE moi_entries ADD COLUMN serial_no INT NULL',
       'ALTER TABLE moi_entries ADD COLUMN table_no VARCHAR(50) NULL',
       'ALTER TABLE moi_entries ADD COLUMN contributor_name VARCHAR(255) NULL',
       'ALTER TABLE moi_entries ADD COLUMN amount DECIMAL(12,2) DEFAULT 0',
@@ -1212,6 +1268,112 @@ const ensureSchema = async () => {
 };
 
 ensureSchema().catch((err) => console.error('Schema setup failed:', err.message));
+
+app.get('/api/bookings', async (req, res) => {
+  try {
+    const status = toNullableString(req.query.status);
+    const phone = toNullableString(req.query.phone);
+    let query = 'SELECT * FROM bookings WHERE 1=1';
+    const params = [];
+
+    if (status) {
+      query += ' AND status = ?';
+      params.push(status);
+    }
+    if (phone) {
+      query += ' AND phone LIKE ?';
+      params.push(`%${phone}%`);
+    }
+
+    query += ' ORDER BY created_at DESC';
+    const [rows] = await pool.query(query, params);
+    res.json(rows.map(mapBookingRow));
+  } catch (err) {
+    console.error('Error fetching bookings:', err);
+    res.status(500).json({ error: 'Failed to load bookings' });
+  }
+});
+
+app.post('/api/bookings', async (req, res) => {
+  try {
+    const booking = mapBookingToDbColumns(req.body || {});
+    if (!booking.name || !booking.phone || !booking.eventName || !booking.bookingDate || !booking.bookingTime) {
+      return res.status(400).json({ error: 'Required booking fields missing' });
+    }
+
+    const id = generateUuidV4();
+    const sql = `
+      INSERT INTO bookings
+        (id, name, phone, event_name, booking_date, booking_time, invitation_count, amount, payment_method, payment_reference, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    await pool.query(sql, [
+      id,
+      booking.name,
+      booking.phone,
+      booking.eventName,
+      booking.bookingDate,
+      booking.bookingTime,
+      booking.invitationCount,
+      booking.amount,
+      booking.paymentMethod,
+      booking.paymentReference,
+      booking.status
+    ]);
+
+    const [rows] = await pool.query('SELECT * FROM bookings WHERE id = ?', [id]);
+    const created = rows && rows.length ? mapBookingRow(rows[0]) : { id, ...booking };
+    res.status(201).json(created);
+  } catch (err) {
+    console.error('Error creating booking:', err);
+    res.status(500).json({ error: 'Failed to create booking' });
+  }
+});
+
+app.put('/api/bookings/:id', async (req, res) => {
+  try {
+    const bookingId = req.params.id;
+    const updates = mapBookingToDbColumns(req.body || {});
+    const updateFields = [];
+    const params = [];
+
+    if (req.body.status !== undefined) {
+      updateFields.push('status = ?');
+      params.push(updates.status);
+    }
+    if (req.body.paymentReference !== undefined) {
+      updateFields.push('payment_reference = ?');
+      params.push(updates.paymentReference);
+    }
+    if (req.body.invitationCount !== undefined) {
+      updateFields.push('invitation_count = ?');
+      params.push(updates.invitationCount);
+    }
+    if (req.body.amount !== undefined) {
+      updateFields.push('amount = ?');
+      params.push(updates.amount);
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    params.push(bookingId);
+    const sql = `UPDATE bookings SET ${updateFields.join(', ')} WHERE id = ?`;
+    const [result] = await pool.query(sql, params);
+
+    if (!result || result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Booking not found' });
+    }
+
+    const [rows] = await pool.query('SELECT * FROM bookings WHERE id = ?', [bookingId]);
+    res.json(rows && rows.length ? mapBookingRow(rows[0]) : { id: bookingId });
+  } catch (err) {
+    console.error('Error updating booking:', err);
+    res.status(500).json({ error: 'Failed to update booking' });
+  }
+});
 
 app.get('/api/events', async (req, res) => {
   console.log('[GET] /api/events request received');
@@ -1414,6 +1576,7 @@ const createMoiEntryHandler = async (req, res) => {
     const sanitized = mapMoiEntryToDbColumns(entry);
     const params = [
       sanitized.eventId,
+      sanitized.serialNo,
       sanitized.tableNo,
       sanitized.contributorName,
       sanitized.amount,
@@ -1440,6 +1603,7 @@ const createMoiEntryHandler = async (req, res) => {
 
     const snakeSql = `INSERT INTO moi_entries (
         event_id,
+    serial_no,
         table_no,
         contributor_name,
         amount,
@@ -1462,10 +1626,11 @@ const createMoiEntryHandler = async (req, res) => {
         data,
         uuid,
         synced
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
     const camelSql = `INSERT INTO moi_entries (
         eventId,
+    serialNo,
         tableNo,
         contributorName,
         amount,
@@ -1488,7 +1653,7 @@ const createMoiEntryHandler = async (req, res) => {
         data,
         uuid,
         synced
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
     let result;
     try {
@@ -1518,6 +1683,7 @@ const updateMoiEntryHandler = async (req, res) => {
     await pool.query(
       `UPDATE moi_entries SET
         event_id = ?,
+        serial_no = ?,
         table_no = ?,
         contributor_name = ?,
         amount = ?,
@@ -1540,7 +1706,8 @@ const updateMoiEntryHandler = async (req, res) => {
         data = ?
       WHERE id = ?`,
       [
-        sanitized.eventId,
+  sanitized.eventId,
+  sanitized.serialNo,
         sanitized.tableNo,
         sanitized.contributorName,
         sanitized.amount,

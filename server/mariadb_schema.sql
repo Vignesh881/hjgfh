@@ -14,6 +14,7 @@ CREATE TABLE events (
 CREATE TABLE moi_entries (
   id INT PRIMARY KEY AUTO_INCREMENT,
   event_id INT NOT NULL,
+  serial_no INT,
   table_no INT,
   contributor_name VARCHAR(255) NOT NULL,
   amount INT NOT NULL,
@@ -46,6 +47,23 @@ CREATE TABLE settings (
   id INT PRIMARY KEY AUTO_INCREMENT,
   key_name VARCHAR(255) NOT NULL,
   value TEXT
+);
+
+-- 6. Bookings Table (public booking site)
+CREATE TABLE bookings (
+  id VARCHAR(36) PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  phone VARCHAR(20) NOT NULL,
+  event_name VARCHAR(200) NOT NULL,
+  booking_date DATE NOT NULL,
+  booking_time VARCHAR(20) NOT NULL,
+  invitation_count INT DEFAULT NULL,
+  amount DECIMAL(10,2) DEFAULT 0,
+  payment_method VARCHAR(50) DEFAULT 'online',
+  payment_reference VARCHAR(100) DEFAULT NULL,
+  status VARCHAR(20) DEFAULT 'pending',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
 -- You can add more fields as needed for your app.

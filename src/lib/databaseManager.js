@@ -11,6 +11,13 @@ class DatabaseManager {
         this.isCloudEnabled = false;
     }
 
+    _getDefaultApiBaseUrl() {
+        if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) {
+            return process.env.REACT_APP_API_URL;
+        }
+        return 'https://hjgfh.onrender.com/api';
+    }
+
     // Initialize cloud database connection (PlanetScale)
     async initializeCloudConnection() {
         try {
@@ -128,10 +135,9 @@ class DatabaseManager {
         }
         if (typeof window !== 'undefined') {
             // Set 'moibook_api_url' in localStorage on each client to point to the central server (e.g., http://192.168.1.100:3001/api)
-            return localStorage.getItem('moibook_api_url') || 'http://localhost:3001/api';
+            return localStorage.getItem('moibook_api_url') || this._getDefaultApiBaseUrl();
         }
-        // Fallback: localhost (for single-machine dev only)
-        return 'http://localhost:3001/api';
+        return this._getDefaultApiBaseUrl();
     }
 
     /**

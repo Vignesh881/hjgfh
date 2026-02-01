@@ -11,12 +11,60 @@ const denominations = [500, 200, 100, 50, 20, 10, 5, 2, 1];
 const AllEntriesView = ({ moiEntries, onEditEntry }) => {
     const [searchQuery, setSearchQuery] = useState('');
 
+    const getEntrySerialNumber = (entry) => {
+        const raw = entry?.serialNumber ?? entry?.serial_no ?? entry?.serial ?? entry?.entryNumber ?? null;
+        const parsed = raw != null ? parseInt(raw, 10) : NaN;
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    };
+
+    const formatSerialNumber = (value) => {
+        const parsed = value != null ? parseInt(value, 10) : NaN;
+        if (!Number.isFinite(parsed)) return '';
+        return parsed.toString().padStart(4, '0');
+    };
+
+    const eventSerialMap = useMemo(() => {
+        const map = new Map();
+        const sorted = [...moiEntries].sort((a, b) => {
+            const aSerial = getEntrySerialNumber(a);
+            const bSerial = getEntrySerialNumber(b);
+            if (Number.isFinite(aSerial) && Number.isFinite(bSerial)) {
+                return aSerial - bSerial;
+            }
+            const aKey = Number.isFinite(aSerial) ? aSerial : (parseInt(a?.id, 10) || 0);
+            const bKey = Number.isFinite(bSerial) ? bSerial : (parseInt(b?.id, 10) || 0);
+            return aKey - bKey;
+        });
+        let seq = 1;
+        for (const entry of sorted) {
+            if (getEntrySerialNumber(entry) == null) {
+                map.set(entry, seq);
+            }
+            seq += 1;
+        }
+        return map;
+    }, [moiEntries]);
+
+    const resolveSerialNumber = (entry) => {
+        const existing = getEntrySerialNumber(entry);
+        if (Number.isFinite(existing)) return existing;
+        const mapped = eventSerialMap.get(entry);
+        return Number.isFinite(mapped) ? mapped : null;
+    };
+
     const filteredMoiEntries = useMemo(() => {
         if (!searchQuery) return moiEntries;
         const lowercasedQuery = searchQuery.toLowerCase();
 
-        const getCombinedId = (entry) =>
-            `${entry.table ? entry.table.replace('table', 'T').toUpperCase() : 'T?'}-${entry.id}`;
+        const getCombinedId = (entry) => {
+            const tableLabel = entry.table ? entry.table.replace('table', 'T').toUpperCase() : 'T?';
+            const serialNumber = resolveSerialNumber(entry);
+            const serialText = formatSerialNumber(serialNumber)
+                || entry.serialNumber
+                || entry.entryNumber
+                || entry.id;
+            return `${tableLabel}-${serialText}`;
+        };
 
         return moiEntries.filter(entry =>
             (getCombinedId(entry).toLowerCase().includes(lowercasedQuery)) ||
@@ -26,7 +74,7 @@ const AllEntriesView = ({ moiEntries, onEditEntry }) => {
             (entry.phone && entry.phone.includes(lowercasedQuery)) ||
             (entry.amount && Math.abs(entry.amount).toString().includes(lowercasedQuery))
         );
-    }, [searchQuery, moiEntries]);
+    }, [searchQuery, moiEntries, eventSerialMap]);
     
     return (
          <section className="event-table-container" style={{ backgroundColor: '#fff', padding: '2rem', borderRadius: '16px', boxShadow: 'var(--shadow)' }}>
@@ -59,7 +107,11 @@ const AllEntriesView = ({ moiEntries, onEditEntry }) => {
                             }
                         >
                             <td>
-                                <span>{`${entry.table ? entry.table.replace('table', 'T').toUpperCase() : 'T?'}-${entry.id}`}</span>
+                                <span>{formatSerialNumber(resolveSerialNumber(entry))
+                                    || entry.serialNumber
+                                    || entry.entryNumber
+                                    || entry.id}
+                                </span>
                                 <span className="sub-text">{entry.memberId}</span>
                             </td>
                             <td>
@@ -433,7 +485,7 @@ export default function EventDashboard({ eventId, events, moiEntries, setMoiEntr
     useEffect(() => {
         if (isAddMemberOpen) {
             const nextId = members.reduce((max, m) => Math.max(max, parseInt(m.id, 10) || 0), 0) + 1;
-            const nextCode = nextId.toString().padStart(4, '0');
+            const nextCode = nextId.toString().padStart(6, '0');
             setNewMember(prev => ({
                 ...prev,
                 memberCode: nextCode,

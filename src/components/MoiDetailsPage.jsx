@@ -2,14 +2,68 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
 */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { MoiBookIcon } from './MoiBookLogo';
 
 const denominations = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-const initialTally = denominations.reduce((acc, note) => ({...acc, [note]: ''}), {});
+const initialTally = denominations.reduce((acc, note) => ({...acc, [note]: '0'}), {});
 
 export default function MoiDetailsPage({ event, moiEntries, onBack, loggedInTable = null, registrars = [], settings = {} }) {
-    const [tally, setTally] = useState(initialTally);
+    const tallyStorageKey = useMemo(() => {
+        const eventId = event?.id || 'event';
+        const tableKey = loggedInTable || 'all';
+        return `moibook_tally_${eventId}_${tableKey}`;
+    }, [event?.id, loggedInTable]);
+
+    const [tally, setTally] = useState(() => {
+        if (typeof window === 'undefined') return initialTally;
+        try {
+            const raw = window.localStorage?.getItem?.(tallyStorageKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const normalized = { ...parsed };
+                Object.keys(initialTally).forEach(note => {
+                    if (!normalized[note] && normalized[note] !== '0') {
+                        normalized[note] = '0';
+                    }
+                });
+                return { ...initialTally, ...normalized };
+            }
+        } catch (err) {
+            // ignore
+        }
+        return initialTally;
+    });
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const raw = window.localStorage?.getItem?.(tallyStorageKey);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                const normalized = { ...parsed };
+                Object.keys(initialTally).forEach(note => {
+                    if (!normalized[note] && normalized[note] !== '0') {
+                        normalized[note] = '0';
+                    }
+                });
+                setTally({ ...initialTally, ...normalized });
+            } else {
+                setTally(initialTally);
+            }
+        } catch (err) {
+            setTally(initialTally);
+        }
+    }, [tallyStorageKey]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            window.localStorage?.setItem?.(tallyStorageKey, JSON.stringify(tally));
+        } catch (err) {
+            // ignore
+        }
+    }, [tally, tallyStorageKey]);
 
     const registrarById = useMemo(() => {
         return registrars.reduce((acc, reg) => {
@@ -233,7 +287,7 @@ export default function MoiDetailsPage({ event, moiEntries, onBack, loggedInTabl
                                         <label>₹ {note} x</label>
                                         <input
                                             type="tel"
-                                            value={tally[note]}
+                                            value={tally[note] || '0'}
                                             onChange={(e) => handleTallyChange(note, e.target.value)}
                                             placeholder="0"
                                         />

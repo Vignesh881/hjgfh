@@ -65,9 +65,17 @@ export default function DenominationModal({ totalAmount, onSave, onClose }) {
         }
 
         const netDenominations = {};
+        const receivedSnapshot = {};
+        const givenSnapshot = {};
         notes.forEach(note => {
             const receivedCount = parseInt(receivedDenominations[note], 10) || 0;
             const givenCount = parseInt(givenDenominations[note], 10) || 0;
+            if (receivedCount !== 0) {
+                receivedSnapshot[note] = receivedCount;
+            }
+            if (givenCount !== 0) {
+                givenSnapshot[note] = givenCount;
+            }
             const netCount = receivedCount - givenCount;
             // Only store notes that were actually part of the transaction
             if (netCount !== 0) {
@@ -75,7 +83,11 @@ export default function DenominationModal({ totalAmount, onSave, onClose }) {
             }
         });
         
-        onSave(netDenominations);
+        onSave({
+            netDenominations,
+            receivedDenominations: receivedSnapshot,
+            givenDenominations: givenSnapshot
+        });
 
     }, [canSave, onSave, receivedDenominations, givenDenominations, totalAmount]);
 
