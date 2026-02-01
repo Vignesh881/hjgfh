@@ -136,6 +136,17 @@ const renderProfessionalReport = (moiOnlyEntries, maternalUncleEntries, townGrou
     
     // Calculate comprehensive statistics
     const stats = calculateStatistics(moiOnlyEntries, maternalUncleEntries, townGroups);
+    const flatTownData = buildFlatTownPages(sortedTowns, townGroups);
+
+    const maternalPage = includeTableOfContents ? 3 : 2;
+    const townListStartPage = maternalPage + 1;
+    const overallTotalsPage = townListStartPage + flatTownData.pages.length;
+    const tocPageInfo = {
+        maternalPage,
+        townListStartPage,
+        overallTotalsPage,
+        townStartPages: flatTownData.townStartPages
+    };
     
     return (
         <div className="moi-report">
@@ -269,13 +280,13 @@ const renderProfessionalReport = (moiOnlyEntries, maternalUncleEntries, townGrou
             </div>
 
             {/* Table of Contents Page */}
-            {includeTableOfContents && renderTableOfContentsPage(sortedTowns, townGroups, event, styles)}
+            {includeTableOfContents && renderTableOfContentsPage(sortedTowns, townGroups, event, styles, tocPageInfo)}
 
             {/* Maternal Uncle Details Page */}
             {renderMaternalUnclePage(maternalUncleEntries, styles)}
 
             {/* Town-wise Details - flat, continuous list with running numbers */}
-            {renderFlatTownList(sortedTowns, townGroups, styles)}
+            {renderFlatTownList(flatTownData.pages, styles)}
 
             {/* Overall totals after town list */}
             {renderOverallTotalsPage(stats, styles)}
@@ -739,34 +750,11 @@ const renderTownDetailsPage = (townName, townEntries, townIndex, styles) => {
     );
 };
 
-// Simple Table of Contents page
-const renderTableOfContentsPage = (sortedTowns, townGroups, event, styles) => (
-    <div className="page" style={styles.page}>
-        <div style={styles.sectionBox}>
-            <div style={styles.sectionHeader}>
-                <div style={styles.sectionTitle}>பொருளடக்கம்</div>
-                <div style={styles.sectionSubtitle}>Table of Contents</div>
-            </div>
-            <ol style={{paddingLeft: '20px', fontSize: '13px', lineHeight: '1.4'}}>
-                <li style={{marginBottom: '6px'}}>தாய்மாமன் விபரம்</li>
-                <li style={{marginBottom: '6px'}}>ஊர் வாரியாக விபரம்</li>
-                {sortedTowns.map((town) => (
-                    <li key={town} style={{marginBottom: '4px'}}>
-                        {town} ({(townGroups[town] || []).length})
-                    </li>
-                ))}
-                <li style={{marginTop: '8px'}}>விவரமான அறிக்கை</li>
-            </ol>
-        </div>
-    </div>
-);
-
-// Flat continuous town list with running numbers and simple 5-column layout
-const renderFlatTownList = (sortedTowns, townGroups, styles) => {
+// Build flat town list pages and map towns to page numbers within the town list
+const buildFlatTownPages = (sortedTowns, townGroups) => {
     let run = 1;
     const rows = [];
 
-    // Build a flat sequence of header + data rows
     sortedTowns.forEach((townName) => {
         const entries = townGroups[townName] || [];
         if (!entries.length) return;
@@ -789,8 +777,8 @@ const renderFlatTownList = (sortedTowns, townGroups, styles) => {
         });
     });
 
-    // Paginate so each page has at most 20 rows total (headers + data)
     const pages = [];
+    const townStartPages = {};
     let currentPageRows = [];
     let rowCount = 0;
 
@@ -806,12 +794,72 @@ const renderFlatTownList = (sortedTowns, townGroups, styles) => {
             pushPage();
         }
 
+        if (row.type === 'header' && townStartPages[row.town] == null) {
+            townStartPages[row.town] = pages.length + 1; // 1-based within town list
+        }
+
         currentPageRows.push(row);
         rowCount += 1;
     });
 
     pushPage();
 
+    return { pages, townStartPages };
+};
+
+// Simple Table of Contents page
+const renderTableOfContentsPage = (sortedTowns, townGroups, event, styles, tocPageInfo) => (
+    <div className="page" style={styles.page}>
+        <div style={styles.sectionBox}>
+            <div style={styles.sectionHeader}>
+                <div style={styles.sectionTitle}>பொருளடக்கம்</div>
+                <div style={styles.sectionSubtitle}>Table of Contents</div>
+            </div>
+            {(() => {
+                const rowStyle = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' };
+                const rowText = { flex: 1, paddingRight: '8px' };
+                const rowPage = { minWidth: '32px', textAlign: 'right', fontWeight: 700 };
+                return (
+            <ol style={{paddingLeft: '20px', fontSize: '13px', lineHeight: '1.4'}}>
+                <li style={{marginBottom: '6px'}}>
+                    <div style={rowStyle}>
+                        <span style={rowText}>தாய்மாமன் விபரம்</span>
+                        <span style={rowPage}>{tocPageInfo?.maternalPage}</span>
+                    </div>
+                </li>
+                <li style={{marginBottom: '6px'}}>
+                    <div style={rowStyle}>
+                        <span style={rowText}>ஊர் வாரியாக விபரம்</span>
+                        <span style={rowPage}>{tocPageInfo?.townListStartPage}</span>
+                    </div>
+                </li>
+                {sortedTowns.map((town) => (
+                    <li key={town} style={{marginBottom: '4px'}}>
+                        <div style={rowStyle}>
+                            <span style={rowText}>{town} ({(townGroups[town] || []).length})</span>
+                            <span style={rowPage}>{(() => {
+                                const townStart = tocPageInfo?.townStartPages?.[town];
+                                if (!townStart) return '-';
+                                return (tocPageInfo?.townListStartPage || 0) + townStart - 1;
+                            })()}</span>
+                        </div>
+                    </li>
+                ))}
+                <li style={{marginTop: '8px'}}>
+                    <div style={rowStyle}>
+                        <span style={rowText}>விவரமான அறிக்கை</span>
+                        <span style={rowPage}>{tocPageInfo?.overallTotalsPage}</span>
+                    </div>
+                </li>
+            </ol>
+                );
+            })()}
+        </div>
+    </div>
+);
+
+// Flat continuous town list with running numbers and simple 5-column layout
+const renderFlatTownList = (pages, styles) => {
     const renderPage = (pageRows, pageIndex) => {
         const pageTotal = pageRows
             .filter(r => r.type === 'data')
@@ -825,7 +873,7 @@ const renderFlatTownList = (sortedTowns, townGroups, styles) => {
                         ஊர் வாரியான விபரம்
                     </div>
                     <div style={{...styles.sectionSubtitle, marginTop: '4px'}}>
-                        பக்கம் {pageIndex + 1}
+                        
                     </div>
                 </div>
 
@@ -911,7 +959,7 @@ const renderDetailedSummaryPage = (stats, maternalUncleEntries, townGroups, sort
                     <div style={styles.sectionBox}>
                         <div style={styles.sectionHeader}>
                             <div style={styles.sectionTitle}>விரிவான சுருக்க அறிக்கை</div>
-                            <div style={styles.sectionSubtitle}>Detailed Summary Report — பக்கம் {pageIndex + 1}</div>
+                            <div style={styles.sectionSubtitle}>Detailed Summary Report</div>
                         </div>
                         
                         <div style={styles.detailedSummaryContent}>
@@ -1040,8 +1088,8 @@ const renderManualEntryPages = (styles) => {
             <div key={`manual-page-${pageNum}`} className="page" style={styles.page}>
                 <div style={styles.sectionBox}>
                     <div style={styles.sectionHeader}>
-                        <div style={styles.sectionTitle}>விழா முடிவிற்கு பிறகு வந்த மொய் விபரம் - பக்கம் {pageNum}</div>
-                        <div style={styles.sectionSubtitle}>Post-Event Moi Entries (Manual Entry) - Page {pageNum}</div>
+                        <div style={styles.sectionTitle}>விழா முடிவிற்கு பிறகு வந்த மொய் விபரம்</div>
+                        <div style={styles.sectionSubtitle}>Post-Event Moi Entries (Manual Entry)</div>
                     </div>
                     
                     {/* Main Entry Table */}

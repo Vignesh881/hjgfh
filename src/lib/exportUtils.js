@@ -12,6 +12,32 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import MoiReport from '../components/MoiReport';
 
+const addPdfPageFooters = (pages) => {
+    pages.forEach((page, index) => {
+        if (!page) return;
+        const existing = page.querySelector('.pdf-page-footer');
+        if (existing) {
+            existing.textContent = `பக்கம் ${index + 1}`;
+            return;
+        }
+        if (getComputedStyle(page).position === 'static') {
+            page.style.position = 'relative';
+        }
+        const footer = document.createElement('div');
+        footer.className = 'pdf-page-footer';
+        footer.textContent = `பக்கம் ${index + 1}`;
+        footer.style.cssText = `
+            position: absolute;
+            bottom: 8mm;
+            right: 12mm;
+            font-size: 12px;
+            color: #333;
+            font-weight: 600;
+        `;
+        page.appendChild(footer);
+    });
+};
+
 /**
  * Export Professional Moi Report as Tamil PDF (Using Browser Print Dialog)
  * Opens the full MoiReport component in a print preview window
@@ -91,6 +117,8 @@ export const exportTamilPdf = async (moiEntries, event, fileName, settings) => {
         
         // Get all pages from the rendered report
         const pages = printContainer.querySelectorAll('.page');
+
+        addPdfPageFooters(pages);
         
         console.log(`📄 Found ${pages.length} pages to export`);
         
@@ -253,6 +281,8 @@ export const exportTamilPdfForShare = async (moiEntries, event, fileName, settin
         await new Promise(resolve => setTimeout(resolve, 1500));
 
         const pages = printContainer.querySelectorAll('.page');
+
+        addPdfPageFooters(pages);
 
         if (pages.length === 0) {
             throw new Error('No pages found to export');
