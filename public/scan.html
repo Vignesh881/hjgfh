@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MoiBook — Scan / Prefill</title>
+  <style>
+    body{font-family:Segoe UI,Roboto,Arial;margin:18px;background:#f7f9fc;color:#111}
+    .card{max-width:720px;margin:18px auto;padding:18px;background:#fff;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+    label{display:block;font-weight:600;margin-top:10px}
+    input,textarea{width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:6px}
+    .row{display:flex;gap:10px}
+    .row > *{flex:1}
+    button{padding:10px 14px;border:0;border-radius:6px;cursor:pointer}
+    .btn-primary{background:#00695c;color:#fff}
+    .btn-ghost{background:#eee}
+    pre{background:#f3f6fb;padding:12px;border-radius:6px;overflow:auto}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>MoiBook — Scan (Form-only)</h2>
+    <p style="color:#555;margin-top:6px">This page decodes a Base64 JSON payload from the URL fragment <code>#d=...</code> and shows a small prefill form. It does not load the full app.</p>
+
+    <div id="notice" style="color:#b45309;display:none">No payload found in URL.</div>
+
+    <label>Decoded payload (JSON)</label>
+    <pre id="payload" style="min-height:80px">—</pre>
+
+    <label>Preview fields</label>
+    <input id="name" placeholder="Name" />
+    <input id="phone" placeholder="Phone" />
+    <input id="town" placeholder="Town" />
+    <input id="amount" placeholder="Amount" />
+
+    <label>App base URL (where MoiFormPage is running)</label>
+    <input id="appUrl" placeholder="http://192.168.1.100:3000" />
+
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button id="copyBtn" class="btn-ghost">Copy JSON</button>
+      <button id="openBtn" class="btn-primary">Open in MoiFormPage</button>
+    </div>
+
+    <hr style="margin:16px 0" />
+    <div style="font-size:0.9rem;color:#444">
+      Tip: Encode a compact JSON and place it in the QR fragment as <code>#d=BASE64_JSON</code>.
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const payloadEl = document.getElementById('payload');
+      const notice = document.getElementById('notice');
+      const nameEl = document.getElementById('name');
+      const phoneEl = document.getElementById('phone');
+      const townEl = document.getElementById('town');
+      const amountEl = document.getElementById('amount');
+      const appUrlEl = document.getElementById('appUrl');
+      const copyBtn = document.getElementById('copyBtn');
+      const openBtn = document.getElementById('openBtn');
+
+      // sensible default for appUrl (user can change)
+      appUrlEl.value = location.hostname && location.hostname !== 'localhost' ? ('http://' + location.hostname + ':3000') : 'http://<PC-IP>:3000';
+
+      function setPayload(obj){
+        payloadEl.textContent = JSON.stringify(obj, null, 2);
+        nameEl.value = obj.name || '';
+        phoneEl.value = obj.phone || '';
+        townEl.value = obj.town || '';
+        amountEl.value = obj.amount || '';
+      }
+
+      function parseFromHashOrQuery(){
+        try{
+          const h = location.hash ? location.hash.slice(1) : '';
+          const hp = new URLSearchParams(h);
+          const dfrag = hp.get('d');
+          if(dfrag){
+            const json = JSON.parse(atob(dfrag));
+            setPayload(json);
+            return json;
+          }
+
+          const qp = new URLSearchParams(location.search);
+          const qd = qp.get('d');
+          if(qd){
+            const json = JSON.parse(atob(qd));
+            setPayload(json);
+            return json;
+          }
+        }catch(e){
+          payloadEl.textContent = 'Error parsing payload: ' + (e && e.message);
+        }
+        return null;
+      }
+
+      const parsed = parseFromHashOrQuery();
+      if(!parsed){ notice.style.display='block'; }
+
+      copyBtn.addEventListener('click', ()=>{
+        const text = payloadEl.textContent;
+        if(text && text.trim() !== '—') navigator.clipboard.writeText(text).then(()=> alert('Copied'));
+      });
+
+      openBtn.addEventListener('click', ()=>{
+        const base = appUrlEl.value.trim();
+        if(!base) return alert('Enter app base URL');
+        const fragment = 'd=' + btoa(payloadEl.textContent);
+        // open in a new tab the app with prefill in query param
+        const target = base + (base.includes('?') ? '&' : '?') + 'prefill=' + encodeURIComponent(btoa(payloadEl.textContent));
+        window.open(target, '_blank');
+      });
+    })();
+  </script>
+</body>
+</html>

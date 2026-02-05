@@ -117,34 +117,27 @@ export default function MoiEntryPage({ events, settings, registrars, loggedInTab
                                 <th>விழா பெயர்</th>
                                 <th>விழா தலைவர் பெயர்</th>
                                 <th>விழா அமைப்பாளர் பெயர்</th>
-                                <th>செயல்</th>
                             </tr>
                         </thead>
                         <tbody>
                             {eventToShow ? (
-                                <tr key={eventToShow.id} className='selected'>
+                                <tr
+                                    key={eventToShow.id}
+                                    className='selected'
+                                    onClick={handleNavigateToMoiForm}
+                                    style={{ cursor: 'pointer' }}
+                                    title="நுழைய கிளிக் செய்யவும்"
+                                >
                                     <td>{eventToShow.id}</td>
                                     <td>{new Date(eventToShow.date).toLocaleDateString('en-GB')}<br/>{formatTo12Hour(eventToShow.time).hour}:{formatTo12Hour(eventToShow.time).minute} {formatTo12Hour(eventToShow.time).period}</td>
                                     <td>{eventToShow.venue}<br/>{eventToShow.place}</td>
                                     <td>{eventToShow.eventName}{eventToShow.eventSide && ` (${eventToShow.eventSide})`}</td>
                                     <td>{eventToShow.eventHead}</td>
                                     <td>{eventToShow.eventOrganizer}</td>
-                                    <td className="table-actions">
-                                        <button 
-                                            type="button" 
-                                            className="button" 
-                                            style={{padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem'}}
-                                            aria-label="Moi Entry" 
-                                            onClick={handleNavigateToMoiForm}
-                                        >
-                                            <span className="icon">add_card</span>
-                                            Moi Entry
-                                        </button>
-                                    </td>
                                 </tr>
                             ) : (
                                 <tr>
-                                    <td colSpan="7" style={{ textAlign: 'center', padding: '2rem' }}>
+                                    <td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>
                                         Settings-ல் விழாவைத் தேர்ந்தெடுக்கவும்
                                     </td>
                                 </tr>

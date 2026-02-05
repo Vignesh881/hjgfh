@@ -186,7 +186,7 @@ const SearchableComboBox = ({ options, value, onValueChange, onOptionSelect, pla
     );
 };
 
-export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, onNavigateToMoiDetails, moiEntries, addMoiEntry, updateMoiEntry, deleteMoiEntry, updatePinUsage, towns, people, settings = {} }) {
+export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, onNavigateToMoiDetails, moiEntries, addMoiEntry, updateMoiEntry, deleteMoiEntry, updatePinUsage, towns, people, settings = {}, setSettings }) {
     const [formData, setFormData] = useState(initialFormState);
     const [isDenominationModalOpen, setIsDenominationModalOpen] = useState(false);
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -242,6 +242,15 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         return parsed.toString().padStart(4, '0');
     };
 
+    const isMemberWhatsappEnabled = settings?.memberCardWhatsappEnabled !== false;
+    const handleMemberWhatsappToggle = () => {
+        if (typeof setSettings !== 'function') return;
+        setSettings({
+            ...settings,
+            memberCardWhatsappEnabled: !isMemberWhatsappEnabled
+        });
+    };
+
     const buildMemberQrPayload = (member) => {
         return JSON.stringify({
             memberCode: member.memberCode || member.memberId || '',
@@ -266,6 +275,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
 
     const sendMemberIdCardWhatsApp = async (memberData) => {
         if (isCardSending) return;
+        if (settings?.memberCardWhatsappEnabled === false) return;
         if (!memberData?.phone) return;
 
         const digits = String(memberData.phone).replace(/\D/g, '');
@@ -481,6 +491,73 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             stopQrScanner();
         };
     }, [isQrScanOpen]);
+
+    // Prefill from URL (supports ?prefill=BASE64 or fragment #d=BASE64)
+    useEffect(() => {
+        try {
+            if (typeof window === 'undefined') return;
+            const params = new URLSearchParams(window.location.search);
+            const pre = params.get('prefill');
+            if (pre) {
+                try {
+                    const decoded = JSON.parse(atob(pre));
+                    applyQrPayload(decoded);
+                    // remove query param to avoid reuse
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('prefill');
+                    window.history.replaceState(null, '', url.toString());
+                    return;
+                } catch (e) {
+                    console.error('prefill parse error', e);
+                }
+            }
+
+            const frag = typeof window !== 'undefined' ? window.location.hash.slice(1) : '';
+            if (frag) {
+                const fragParams = new URLSearchParams(frag);
+                const d = fragParams.get('d');
+                if (d) {
+                    try {
+                        const decoded = JSON.parse(atob(d));
+                        applyQrPayload(decoded);
+                        // clear hash
+                        history.replaceState(null, '', window.location.pathname + window.location.search);
+                    } catch (e) {
+                        console.error('fragment prefill parse error', e);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('prefill handler error', err);
+        }
+    }, []);
+
+    // Open QR scanner from URL (supports ?scan=1 or fragment #scan=1)
+    useEffect(() => {
+        try {
+            if (typeof window === 'undefined') return;
+            const params = new URLSearchParams(window.location.search);
+            const scan = params.get('scan');
+            if (scan === '1' || scan === 'true') {
+                setIsQrScanOpen(true);
+                const url = new URL(window.location.href);
+                url.searchParams.delete('scan');
+                window.history.replaceState(null, '', url.toString());
+                return;
+            }
+            const frag = window.location.hash ? window.location.hash.slice(1) : '';
+            if (frag) {
+                const fragParams = new URLSearchParams(frag);
+                const scanFrag = fragParams.get('scan');
+                if (scanFrag === '1' || scanFrag === 'true') {
+                    setIsQrScanOpen(true);
+                    history.replaceState(null, '', window.location.pathname + window.location.search);
+                }
+            }
+        } catch (err) {
+            console.error('scan open handler error', err);
+        }
+    }, []);
 
     // Helper function to check if field requires specific keyboard mode
     const getRequiredKeyboardMode = (fieldName) => {
@@ -1371,6 +1448,21 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                     </div>
                 </div>
                 <div className="header-right">
+                    <div className="header-whatsapp-toggle">
+                        <button
+                            type="button"
+                            className={`whatsapp-toggle compact ${isMemberWhatsappEnabled ? 'on' : 'off'}`}
+                            onClick={handleMemberWhatsappToggle}
+                            role="switch"
+                            aria-checked={isMemberWhatsappEnabled}
+                            aria-label="WhatsApp Member ID Card"
+                        >
+                            <span className="whatsapp-toggle-knob" />
+                            <span className="whatsapp-toggle-label">
+                                {isMemberWhatsappEnabled ? 'WhatsApp ON' : 'WhatsApp OFF'}
+                            </span>
+                        </button>
+                    </div>
                     <button className="icon-button" onClick={onBack} aria-label="Back">
                         <span className="icon">arrow_back</span>
                     </button>
@@ -2769,6 +2861,10 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                                     {qrScanError}
                                 </div>
                             )}
+                            <div style={{ color: '#1f2937', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                                இந்த application உள்ளேயே QR scan செய்யலாம். Scan செய்தவுடன் தகவல்கள் auto‑fill ஆகும்.
+                                பிறகு தொகை மட்டும் உள்ளீடு செய்து Save செய்யுங்கள்.
+                            </div>
                             <div style={{ color: '#555', fontSize: '0.9rem' }}>
                                 QR scan செய்தவுடன் விவரங்கள் auto‑fill ஆகும்.
                             </div>

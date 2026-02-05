@@ -57,6 +57,7 @@ const initialSettings = {
     registrarAssignments: {},
     printerAssignments: {},
     storageDriver: 'C:',
+  memberCardWhatsappEnabled: true,
 };
 
 // Mock data for dropdowns (remains in-memory)
@@ -1085,6 +1086,7 @@ export default function App() {
         deleteMoiEntry={deleteMoiEntry}
         updatePinUsage={updatePinUsage}
         settings={settings}
+        setSettings={updateSettingsState}
         towns={mockTowns}
         people={mockPeople}
     />;
