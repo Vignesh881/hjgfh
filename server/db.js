@@ -4,6 +4,11 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const dbType = (process.env.DB_TYPE || '').trim().toLowerCase();
 const databaseUrl = (process.env.DATABASE_URL || '').trim();
 const isPostgres = dbType === 'postgres' || Boolean(databaseUrl);
+if (process.env.RENDER || process.env.RENDER_SERVICE_ID) {
+  console.log(
+    `[DB] DB_TYPE=${dbType || '(empty)'} DATABASE_URL set=${Boolean(databaseUrl)}`
+  );
+}
 
 const sanitizeIdentifier = (value) => {
   const text = String(value || '');
