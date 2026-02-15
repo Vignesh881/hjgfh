@@ -202,6 +202,9 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     const [memberSearchStatus, setMemberSearchStatus] = useState(''); // '' | 'found' | 'not-found'
     const [isQrScanOpen, setIsQrScanOpen] = useState(false);
     const [qrScanError, setQrScanError] = useState('');
+    const [activeTab, setActiveTab] = useState('form'); // 'form' | 'qr'
+    const [qrListEntries, setQrListEntries] = useState([]);
+    const [lastQrScanInfo, setLastQrScanInfo] = useState(null);
     const [currentInputLanguage, setCurrentInputLanguage] = useState('unknown'); // 'english', 'tamil', or 'unknown'
     const [focusedField, setFocusedField] = useState(''); // Track which field is focused
     const [showKeyboardSwitchAlert, setShowKeyboardSwitchAlert] = useState(false);
@@ -214,6 +217,10 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     const qrScannerRef = useRef(null);
     const qrReaderIdRef = useRef(`moi-qr-reader-${Math.random().toString(36).slice(2)}`);
     const cardRef = useRef(null);
+    const qrListStorageKey = useMemo(() => {
+        const eventKey = event?.id ? String(event.id) : 'default';
+        return `moi-qr-list:${eventKey}`;
+    }, [event?.id]);
     
     // State for modals
     const [selectedEntry, setSelectedEntry] = useState(null);
@@ -422,6 +429,32 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         }
     };
 
+    const persistQrList = (entries) => {
+        try {
+            localStorage.setItem(qrListStorageKey, JSON.stringify(entries));
+        } catch (err) {
+            console.warn('QR list save failed', err);
+        }
+    };
+
+    const formatQrTimestamp = (value) => {
+        if (!value) return '';
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) return String(value);
+        return parsed.toLocaleString('en-GB');
+    };
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const stored = localStorage.getItem(qrListStorageKey);
+            setQrListEntries(stored ? JSON.parse(stored) : []);
+        } catch (err) {
+            console.warn('QR list load failed', err);
+            setQrListEntries([]);
+        }
+    }, [qrListStorageKey]);
+
     const applyQrPayload = (payload) => {
         if (!payload) return;
         if (typeof payload === 'string') {
@@ -470,6 +503,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                 { fps: 10, qrbox: { width: 240, height: 240 } },
                 (decodedText) => {
                     if (!decodedText) return;
+                    const scannedAt = new Date().toISOString();
+                    setLastQrScanInfo({ raw: decodedText, scannedAt });
                     let payload = null;
                     try {
                         payload = JSON.parse(decodedText);
@@ -834,6 +869,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         setFormData(initialFormState);
         setTownInputValue('');
         setMemberSearchStatus('');
+        setLastQrScanInfo(null);
         memberIdInputRef.current?.focus();
     };
 
@@ -1055,6 +1091,64 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
            handleClearForm();
        }
     };
+
+    const handleAddToQrList = () => {
+        if (!formData.townId && !townInputValue) {
+            alert('âš ï¸ à®Šà®°à¯ à®ªà¯†à®¯à®°à¯ à®…à®µà®šà®¿à®¯à®®à¯ à®¤à¯‡à®µà¯ˆ! à®¤à®¯à®µà¯à®šà¯†à®¯à¯à®¤à¯ à®Šà®°à¯ à®ªà¯†à®¯à®°à¯ˆ à®‰à®³à¯à®³à®¿à®Ÿà®µà¯à®®à¯.');
+            return;
+        }
+        if (!formData.name || formData.name.trim() === '') {
+            alert('âš ï¸ à®ªà¯†à®¯à®°à¯ à®…à®µà®šà®¿à®¯à®®à¯ à®¤à¯‡à®µà¯ˆ! à®¤à®¯à®µà¯à®šà¯†à®¯à¯à®¤à¯ à®ªà¯†à®¯à®°à¯ˆ à®‰à®³à¯à®³à®¿à®Ÿà®µà¯à®®à¯.');
+            return;
+        }
+        if (formData.phone && formData.phone.length !== 10) {
+            alert('à®¤à¯Šà®²à¯ˆà®ªà¯‡à®šà®¿ à®Žà®£à¯ 10 à®‡à®²à®•à¯à®• à®Žà®£à¯à®£à®¾à®• à®‡à®°à¯à®•à¯à®• à®µà¯‡à®£à¯à®Ÿà¯à®®à¯.');
+            return;
+        }
+        if (!formData.amount || parseFloat(formData.amount) <= 0) {
+            alert('à®®à¯Šà®¯à¯ à®¤à¯Šà®•à¯ˆ à®ªà¯‚à®œà¯à®œà®¿à®¯à®®à®¾à®• à®‡à®°à¯à®•à¯à®•à®•à¯à®•à¯‚à®Ÿà®¾à®¤à¯. à®šà®°à®¿à®¯à®¾à®© à®¤à¯Šà®•à¯ˆà®¯à¯ˆ à®‰à®³à¯à®³à®¿à®Ÿà®µà¯à®®à¯.');
+            amountInputRef.current?.focus();
+            return;
+        }
+
+        const townName = towns.find(t => t.id === formData.townId)?.name || townInputValue;
+        const fullName = `${formData.initial ? formData.initial + (formData.initial.endsWith('.') ? '' : '.') : ''} ${formData.name}`.trim();
+        const relationship = formData.relationshipName
+            ? `${formData.relationshipName} ${formData.relationshipType === 'son' ? 'à®®à®•à®©à¯' : 'à®®à®•à®³à¯'}`
+            : '';
+
+        const entry = {
+            id: `qr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+            createdAt: new Date().toISOString(),
+            source: lastQrScanInfo ? 'qr' : 'manual',
+            qrRaw: lastQrScanInfo?.raw || '',
+            scannedAt: lastQrScanInfo?.scannedAt || null,
+            memberId: formData.memberId,
+            town: townName,
+            townId: formData.townId,
+            street: formData.street,
+            initial: formData.initial,
+            baseName: formData.name,
+            name: fullName,
+            relationshipName: formData.relationshipName,
+            parentName: formData.relationshipName,
+            relationshipType: formData.relationshipType,
+            relationship,
+            education: formData.education,
+            profession: formData.profession,
+            phone: formData.phone,
+            note: formData.note,
+            amount: parseFloat(formData.amount),
+            isMaternalUncle: formData.isMaternalUncle,
+        };
+
+        const nextList = [entry, ...qrListEntries];
+        setQrListEntries(nextList);
+        persistQrList(nextList);
+        setLastQrScanInfo(null);
+        handleClearForm();
+        setActiveTab('qr');
+    };
     
     const handleSaveExpense = async (expenseData) => {
         // CRITICAL: Calculate next serial number from current event's entries only
@@ -1248,6 +1342,26 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             ? `Bulk entry முடிந்தது. சேர்க்கப்பட்டது: ${successCount}, தாண்டப்பட்டது: ${skippedCount}`
             : `Bulk entry முடிந்தது. சேர்க்கப்பட்டது: ${successCount} பதிவுகள்.`;
         alert(summaryMessage);
+    };
+
+    const openDenominationModal = () => {
+        if (!formData.townId && !townInputValue) {
+            alert('âš ï¸ à®Šà®°à¯ à®ªà¯†à®¯à®°à¯ à®…à®µà®šà®¿à®¯à®®à¯ à®¤à¯‡à®µà¯ˆ! à®¤à®¯à®µà¯à®šà¯†à®¯à¯à®¤à¯ à®Šà®°à¯ à®ªà¯†à®¯à®°à¯ˆ à®‰à®³à¯à®³à®¿à®Ÿà®µà¯à®®à¯.');
+            return;
+        }
+        
+        if (!formData.name || formData.name.trim() === '') {
+            alert('âš ï¸ à®ªà¯†à®¯à®°à¯ à®…à®µà®šà®¿à®¯à®®à¯ à®¤à¯‡à®µà¯ˆ! à®¤à®¯à®µà¯à®šà¯†à®¯à¯à®¤à¯ à®ªà¯†à®¯à®°à¯ˆ à®‰à®³à¯à®³à®¿à®Ÿà®µà¯à®®à¯.');
+            return;
+        }
+        
+        if (!formData.amount || parseFloat(formData.amount) <= 0) {
+            alert('à®®à¯Šà®¯à¯ à®¤à¯Šà®•à¯ˆ à®ªà¯‚à®œà¯à®œà®¿à®¯à®®à®¾à®• à®‡à®°à¯à®•à¯à®•à®•à¯à®•à¯‚à®Ÿà®¾à®¤à¯. à®šà®°à®¿à®¯à®¾à®© à®¤à¯Šà®•à¯ˆà®¯à¯ˆ à®‰à®³à¯à®³à®¿à®Ÿà®µà¯à®®à¯.');
+            amountInputRef.current?.focus();
+            return;
+        }
+        
+        setIsDenominationModalOpen(true);
     };
 
     const handleAmountKeyDown = (e) => {
@@ -1768,6 +1882,46 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                 )}
             </div>
 
+            <div style={{
+                display: 'flex',
+                gap: '10px',
+                marginBottom: '16px',
+                flexWrap: 'wrap'
+            }}>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('form')}
+                    style={{
+                        padding: '8px 16px',
+                        borderRadius: '999px',
+                        border: '1px solid #1f2937',
+                        backgroundColor: activeTab === 'form' ? '#1f2937' : '#fff',
+                        color: activeTab === 'form' ? '#fff' : '#1f2937',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                    }}
+                >
+                    Form
+                </button>
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('qr')}
+                    style={{
+                        padding: '8px 16px',
+                        borderRadius: '999px',
+                        border: '1px solid #0f766e',
+                        backgroundColor: activeTab === 'qr' ? '#0f766e' : '#fff',
+                        color: activeTab === 'qr' ? '#fff' : '#0f766e',
+                        fontWeight: 'bold',
+                        cursor: 'pointer'
+                    }}
+                >
+                    QR List ({qrListEntries.length})
+                </button>
+            </div>
+
+            {activeTab === 'form' && (
+                <>
             <form className="event-form" onSubmit={(e) => e.preventDefault()}>
                 <div className="moi-form-grid">
                     {/* Row 1: Member Id + Town */}
@@ -2285,6 +2439,74 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                     </tbody>
                 </table>
              </section>
+                </>
+            )}
+
+            {activeTab === 'qr' && (
+                <section className="event-table-container" style={{ marginTop: '2rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h3 style={{ margin: 0 }}>QR List</h3>
+                        <span style={{ color: '#666', fontSize: '0.9rem' }}>{qrListEntries.length} items</span>
+                    </div>
+                    {qrListEntries.length === 0 ? (
+                        <div style={{
+                            padding: '16px',
+                            textAlign: 'center',
+                            border: '1px dashed #cbd5e1',
+                            borderRadius: '8px',
+                            background: '#f8fafc'
+                        }}>
+                            QR list காலியாக உள்ளது.
+                        </div>
+                    ) : (
+                        <table className="moi-entry-table">
+                            <thead>
+                                <tr>
+                                    <th>நேரம்</th>
+                                    <th>உறுப்பினர்</th>
+                                    <th>பெயர்</th>
+                                    <th>ஊர்</th>
+                                    <th>தொகை</th>
+                                    <th>விவரம்</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {qrListEntries.map((entry) => (
+                                    <tr key={entry.id}>
+                                        <td>
+                                            <span>{formatQrTimestamp(entry.createdAt)}</span>
+                                            <span className="sub-text">
+                                                {entry.source === 'qr' ? 'QR Scan' : 'Manual'}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span>{entry.memberId || '-'}</span>
+                                            <span className="sub-text">{entry.phone || ''}</span>
+                                        </td>
+                                        <td>
+                                            <span>{entry.relationship ? `${entry.relationship} ${entry.name}` : entry.name}</span>
+                                            {entry.isMaternalUncle && <span className="sub-text">(*) தாய்மாமன்</span>}
+                                        </td>
+                                        <td>
+                                            <span>{entry.town || '-'}</span>
+                                            <span className="sub-text">{entry.street || ''}</span>
+                                        </td>
+                                        <td className="amount-cell">
+                                            {Number.isFinite(entry.amount) ? `₹${Math.abs(entry.amount).toLocaleString('en-IN')}` : '-'}
+                                        </td>
+                                        <td>
+                                            <span>{entry.note || '-'}</span>
+                                            <span className="sub-text">
+                                                {entry.education || ''} {entry.profession ? `(${entry.profession})` : ''}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </section>
+            )}
 
             {isDenominationModalOpen && (
                 <DenominationModal
