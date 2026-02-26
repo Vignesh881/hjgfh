@@ -15,6 +15,12 @@ class DatabaseManager {
         if (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL) {
             return process.env.REACT_APP_API_URL;
         }
+        if (typeof window !== 'undefined' && window.location) {
+            const { protocol, hostname, port } = window.location;
+            if (port === '3000') {
+                return `${protocol}//${hostname}:3001/api`;
+            }
+        }
         return 'https://hjgfh.onrender.com/api';
     }
 

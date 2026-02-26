@@ -1,13 +1,10 @@
 // MoiBook2025 Node.js MySQL API
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2/promise');
 const fs = require('fs/promises');
 const fsSync = require('fs');
 const path = require('path');
-// Load environment variables from the server folder's .env so running
-// `node server/server.js` or `npm run server` from the workspace root picks them up.
-require('dotenv').config();
+const { pool, isPostgres } = require('./db');
 const os = require('os');
 const { spawn, exec } = require('child_process');
 const LOGS_DIR = path.join(__dirname, '..', 'logs');
@@ -24,41 +21,6 @@ const RECEIPT_WIDTH_MM = 80;
 const RECEIPT_HEIGHT_MM = 150;
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
-// IMPORTANT: For multi-location, multi-laptop event entry, ALL clients/servers must use the SAME centralized DB connection below.
-// Do NOT use 'localhost' for production multi-location use. Set MYSQL_HOST to your central server/Planetscale host.
-const caBundlePath = path.join(__dirname, '..', 'cacert.pem');
-const caBundle = fsSync.existsSync(caBundlePath) ? fsSync.readFileSync(caBundlePath, 'utf8') : undefined;
-const sslCaPath = process.env.MYSQL_SSL_CA_PATH;
-const sslCaEnv = process.env.MYSQL_SSL_CA;
-const sslMode = (process.env.MYSQL_SSL || '').toLowerCase();
-const resolvedCa = (() => {
-  if (sslCaPath && fsSync.existsSync(sslCaPath)) {
-    return fsSync.readFileSync(sslCaPath, 'utf8');
-  }
-  if (sslCaEnv) {
-    return sslCaEnv.replace(/\\n/g, '\n');
-  }
-  return caBundle;
-})();
-const hostName = process.env.MYSQL_HOST || 'localhost';
-const shouldUseSsl = !!resolvedCa || sslMode === 'true' || sslMode === '1' || /psdb\.cloud$/i.test(hostName);
-const sslOptions = shouldUseSsl
-  ? resolvedCa
-    ? { ca: resolvedCa, rejectUnauthorized: true }
-    : { rejectUnauthorized: true }
-  : undefined;
-const pool = mysql.createPool({
-  host: hostName,
-  user: process.env.MYSQL_USER || 'root',
-  password: process.env.MYSQL_PASSWORD || '',
-  database: process.env.MYSQL_DATABASE || 'moibook_db',
-  port: process.env.MYSQL_PORT ? parseInt(process.env.MYSQL_PORT, 10) : 3306,
-  ssl: sslOptions,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  charset: 'utf8mb4_general_ci'
-});
 
 const app = express();
 
@@ -502,18 +464,27 @@ app.post('/api/sync/import', async (req, res) => {
         // Insert
         if (table === 'moi_entries') {
           const insertData = item.data || {};
+          const insertSql = isPostgres
+            ? `INSERT INTO moi_entries (event_id, table_no, contributor_name, amount, phone, note, denominations, member_id, uuid, synced, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?) RETURNING id`
+            : `INSERT INTO moi_entries (event_id, table_no, contributor_name, amount, phone, note, denominations, member_id, uuid, synced, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`;
           const [r] = await conn.query(
-            `INSERT INTO moi_entries (event_id, table_no, contributor_name, amount, phone, note, denominations, member_id, uuid, synced, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+            insertSql,
             [insertData.event_id || null, insertData.table_no || null, insertData.contributor_name || '', insertData.amount || 0, insertData.phone || null, insertData.note || null, JSON.stringify(insertData.denominations || {}), insertData.member_id || null, item.uuid || null, item.created_at || null]
           );
           results.push({ uuid: item.uuid || null, id: r.insertId, action: 'inserted' });
         } else if (table === 'members') {
           const d = item.data || {};
-          const [r] = await conn.query(`INSERT INTO members (name, phone, address, uuid) VALUES (?, ?, ?, ?)`, [d.name || '', d.phone || null, d.address || null, item.uuid || null]);
+          const insertSql = isPostgres
+            ? `INSERT INTO members (name, phone, address, uuid) VALUES (?, ?, ?, ?) RETURNING id`
+            : `INSERT INTO members (name, phone, address, uuid) VALUES (?, ?, ?, ?)`;
+          const [r] = await conn.query(insertSql, [d.name || '', d.phone || null, d.address || null, item.uuid || null]);
           results.push({ uuid: item.uuid || null, id: r.insertId, action: 'inserted' });
         } else if (table === 'events') {
           const d = item.data || {};
-          const [r] = await conn.query(`INSERT INTO events (event_name, event_date, location) VALUES (?, ?, ?)`, [d.event_name || '', d.event_date || null, d.location || null]);
+          const insertSql = isPostgres
+            ? `INSERT INTO events (event_name, event_date, location) VALUES (?, ?, ?) RETURNING id`
+            : `INSERT INTO events (event_name, event_date, location) VALUES (?, ?, ?)`;
+          const [r] = await conn.query(insertSql, [d.event_name || '', d.event_date || null, d.location || null]);
           results.push({ uuid: item.uuid || null, id: r.insertId, action: 'inserted' });
         }
       }
@@ -1267,7 +1238,11 @@ const ensureSchema = async () => {
   }
 };
 
-ensureSchema().catch((err) => console.error('Schema setup failed:', err.message));
+if (!isPostgres) {
+  ensureSchema().catch((err) => console.error('Schema setup failed:', err.message));
+} else {
+  console.log('PostgreSQL mode: skipping MySQL schema auto-setup. Run server/postgres_schema.sql in Supabase.');
+}
 
 app.get('/api/bookings', async (req, res) => {
   try {
@@ -1337,6 +1312,8 @@ app.put('/api/bookings/:id', async (req, res) => {
     const updates = mapBookingToDbColumns(req.body || {});
     const updateFields = [];
     const params = [];
+
+    updateFields.push('updated_at = NOW()');
 
     if (req.body.status !== undefined) {
       updateFields.push('status = ?');
@@ -1460,16 +1437,17 @@ app.post('/api/events', async (req, res) => {
       sanitized.raw
     ];
 
+    const returningClause = isPostgres ? ' RETURNING id' : '';
     const snakeSql = numericId != null && !Number.isNaN(numericId)
-      ? 'INSERT INTO events (id, event_name, event_side, event_date, event_time, location, venue, place, event_head, event_head_prof, event_organizer, event_organizer_prof, phone, address, invitation_count, table_count, approval_pins, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      : 'INSERT INTO events (event_name, event_side, event_date, event_time, location, venue, place, event_head, event_head_prof, event_organizer, event_organizer_prof, phone, address, invitation_count, table_count, approval_pins, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      ? `INSERT INTO events (id, event_name, event_side, event_date, event_time, location, venue, place, event_head, event_head_prof, event_organizer, event_organizer_prof, phone, address, invitation_count, table_count, approval_pins, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${returningClause}`
+      : `INSERT INTO events (event_name, event_side, event_date, event_time, location, venue, place, event_head, event_head_prof, event_organizer, event_organizer_prof, phone, address, invitation_count, table_count, approval_pins, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${returningClause}`;
     const snakeParams = numericId != null && !Number.isNaN(numericId)
       ? [numericId, ...baseParams]
       : baseParams;
 
     const camelSql = numericId != null && !Number.isNaN(numericId)
-      ? 'INSERT INTO events (id, eventName, eventSide, eventDate, eventTime, location, venue, place, eventHead, eventHeadProf, eventOrganizer, eventOrganizerProf, phone, address, invitationCount, tableCount, approvalPins, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      : 'INSERT INTO events (eventName, eventSide, eventDate, eventTime, location, venue, place, eventHead, eventHeadProf, eventOrganizer, eventOrganizerProf, phone, address, invitationCount, tableCount, approvalPins, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+      ? `INSERT INTO events (id, eventName, eventSide, eventDate, eventTime, location, venue, place, eventHead, eventHeadProf, eventOrganizer, eventOrganizerProf, phone, address, invitationCount, tableCount, approvalPins, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${returningClause}`
+      : `INSERT INTO events (eventName, eventSide, eventDate, eventTime, location, venue, place, eventHead, eventHeadProf, eventOrganizer, eventOrganizerProf, phone, address, invitationCount, tableCount, approvalPins, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${returningClause}`;
     const camelParams = snakeParams;
 
     let result;
@@ -1601,9 +1579,10 @@ const createMoiEntryHandler = async (req, res) => {
       0
     ];
 
+    const returningClause = isPostgres ? ' RETURNING id' : '';
     const snakeSql = `INSERT INTO moi_entries (
         event_id,
-    serial_no,
+        serial_no,
         table_no,
         contributor_name,
         amount,
@@ -1626,7 +1605,7 @@ const createMoiEntryHandler = async (req, res) => {
         data,
         uuid,
         synced
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${returningClause}`;
 
     const camelSql = `INSERT INTO moi_entries (
         eventId,
@@ -1653,7 +1632,7 @@ const createMoiEntryHandler = async (req, res) => {
         data,
         uuid,
         synced
-  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${returningClause}`;
 
     let result;
     try {
@@ -1771,7 +1750,8 @@ app.post('/api/registrars', async (req, res) => {
     const registrar = req.body || {};
     const numericId = registrar.id ? parseInt(registrar.id, 10) : null;
     const sanitized = mapRegistrarToDbColumns(registrar);
-    let sql = 'INSERT INTO registrars (name, designation, phone, address, permission, data) VALUES (?, ?, ?, ?, ?, ?)';
+    const returningClause = isPostgres ? ' RETURNING id' : '';
+    let sql = `INSERT INTO registrars (name, designation, phone, address, permission, data) VALUES (?, ?, ?, ?, ?, ?)${returningClause}`;
     const params = [
       sanitized.name,
       sanitized.designation,
@@ -1781,7 +1761,7 @@ app.post('/api/registrars', async (req, res) => {
       sanitized.raw
     ];
     if (!Number.isNaN(numericId) && numericId != null) {
-      sql = 'INSERT INTO registrars (id, name, designation, phone, address, permission, data) VALUES (?, ?, ?, ?, ?, ?, ?)';
+      sql = `INSERT INTO registrars (id, name, designation, phone, address, permission, data) VALUES (?, ?, ?, ?, ?, ?, ?)${returningClause}`;
       params.unshift(numericId);
     }
     const [result] = await pool.query(sql, params);
@@ -1847,6 +1827,7 @@ app.post('/api/members', async (req, res) => {
     if (!sanitized.memberCode) {
       return res.status(400).json({ error: 'memberCode is required' });
     }
+    const returningClause = isPostgres ? ' RETURNING id' : '';
     let sql = `INSERT INTO members (
       member_code,
       name,
@@ -1867,7 +1848,7 @@ app.post('/api/members', async (req, res) => {
       notes,
       source_event_id,
       data
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${returningClause}`;
     const params = [
       sanitized.memberCode,
       sanitized.name,
@@ -1911,7 +1892,7 @@ app.post('/api/members', async (req, res) => {
         notes,
         source_event_id,
         data
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${returningClause}`;
       params.unshift(numericId);
     }
     const [result] = await pool.query(sql, params);
@@ -2058,11 +2039,18 @@ app.post('/api/members/bulk-sync', async (req, res) => {
       return placeholders;
     });
 
-    const sql = `INSERT INTO members (${columns.join(', ')}) VALUES ${rowsSql.join(', ')}
-      ON DUPLICATE KEY UPDATE ${columns
-        .filter(column => column !== 'member_code')
-        .map(column => `${column} = VALUES(${column})`)
-        .join(', ')}`;
+    const updateAssignments = columns
+      .filter(column => column !== 'member_code')
+      .map(column => isPostgres
+        ? `${column} = EXCLUDED.${column}`
+        : `${column} = VALUES(${column})`)
+      .join(', ');
+
+    const sql = isPostgres
+      ? `INSERT INTO members (${columns.join(', ')}) VALUES ${rowsSql.join(', ')}
+        ON CONFLICT (member_code) DO UPDATE SET ${updateAssignments}`
+      : `INSERT INTO members (${columns.join(', ')}) VALUES ${rowsSql.join(', ')}
+        ON DUPLICATE KEY UPDATE ${updateAssignments}`;
 
     await pool.query(sql, values);
 
@@ -2091,10 +2079,11 @@ app.post('/api/settings', async (req, res) => {
   try {
     const setting = req.body || {};
     const numericId = setting.id ? parseInt(setting.id, 10) : null;
-    let sql = 'INSERT INTO settings (key_name, value, data) VALUES (?, ?, ?)';
+    const returningClause = isPostgres ? ' RETURNING id' : '';
+    let sql = `INSERT INTO settings (key_name, value, data) VALUES (?, ?, ?)${returningClause}`;
     const params = [setting.key_name || setting.keyName || '', setting.value || '', JSON.stringify(setting)];
     if (!Number.isNaN(numericId) && numericId != null) {
-      sql = 'INSERT INTO settings (id, key_name, value, data) VALUES (?, ?, ?, ?)';
+      sql = `INSERT INTO settings (id, key_name, value, data) VALUES (?, ?, ?, ?)${returningClause}`;
       params.unshift(numericId);
     }
     const [result] = await pool.query(sql, params);

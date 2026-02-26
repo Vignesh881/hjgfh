@@ -187,6 +187,7 @@ const SearchableComboBox = ({ options, value, onValueChange, onOptionSelect, pla
 };
 
 export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, onNavigateToMoiDetails, moiEntries, addMoiEntry, updateMoiEntry, deleteMoiEntry, updatePinUsage, towns, people, settings = {}, setSettings }) {
+    const eventId = event?.id || null;
     const [formData, setFormData] = useState(initialFormState);
     const [isDenominationModalOpen, setIsDenominationModalOpen] = useState(false);
     const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
@@ -202,9 +203,14 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     const [memberSearchStatus, setMemberSearchStatus] = useState(''); // '' | 'found' | 'not-found'
     const [isQrScanOpen, setIsQrScanOpen] = useState(false);
     const [qrScanError, setQrScanError] = useState('');
+    const [isFormQrOpen, setIsFormQrOpen] = useState(false);
+    const [formQrDataUrl, setFormQrDataUrl] = useState('');
+    const [formQrLink, setFormQrLink] = useState('');
+    const [formQrHost, setFormQrHost] = useState('');
     const [activeTab, setActiveTab] = useState('form'); // 'form' | 'qr'
     const [qrListEntries, setQrListEntries] = useState([]);
     const [lastQrScanInfo, setLastQrScanInfo] = useState(null);
+    const [selectedQrListId, setSelectedQrListId] = useState(null);
     const [currentInputLanguage, setCurrentInputLanguage] = useState('unknown'); // 'english', 'tamil', or 'unknown'
     const [focusedField, setFocusedField] = useState(''); // Track which field is focused
     const [showKeyboardSwitchAlert, setShowKeyboardSwitchAlert] = useState(false);
@@ -218,9 +224,9 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     const qrReaderIdRef = useRef(`moi-qr-reader-${Math.random().toString(36).slice(2)}`);
     const cardRef = useRef(null);
     const qrListStorageKey = useMemo(() => {
-        const eventKey = event?.id ? String(event.id) : 'default';
+        const eventKey = eventId ? String(eventId) : 'default';
         return `moi-qr-list:${eventKey}`;
-    }, [event?.id]);
+    }, [eventId]);
     
     // State for modals
     const [selectedEntry, setSelectedEntry] = useState(null);
@@ -454,6 +460,43 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             setQrListEntries([]);
         }
     }, [qrListStorageKey]);
+
+    useEffect(() => {
+        if (!isFormQrOpen) return;
+        if (typeof window === 'undefined') return;
+        try {
+            const baseUrl = new URL(window.location.href);
+            baseUrl.searchParams.delete('scan');
+            baseUrl.hash = '';
+            baseUrl.pathname = '/moi-form';
+            const desiredHost = formQrHost && formQrHost.trim().length > 0 ? formQrHost.trim() : '';
+            let finalUrl = baseUrl;
+            if (desiredHost) {
+                if (/^https?:\/\//i.test(desiredHost)) {
+                    finalUrl = new URL(desiredHost);
+                    finalUrl.searchParams.delete('scan');
+                    finalUrl.hash = '';
+                    finalUrl.pathname = '/moi-form';
+                } else {
+                    baseUrl.host = desiredHost;
+                    finalUrl = baseUrl;
+                }
+            }
+            const link = finalUrl.toString();
+            setFormQrLink(link);
+            QRCode.toDataURL(link, { width: 260, margin: 1 })
+                .then((dataUrl) => setFormQrDataUrl(dataUrl))
+                .catch((err) => {
+                    console.warn('Form QR generate failed', err);
+                    setFormQrDataUrl('');
+                });
+        } catch (err) {
+            console.warn('Form QR link build failed', err);
+            setFormQrDataUrl('');
+            setFormQrLink('');
+        }
+    }, [isFormQrOpen, formQrHost]);
+
 
     const applyQrPayload = (payload) => {
         if (!payload) return;
@@ -805,10 +848,11 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         return uniquePeople;
     }, [formData.townId, moiEntries]);
 
-    const eventEntries = useMemo(() => (
+    const eventEntries = useMemo(() => {
+        if (!eventId) return [];
         // CRITICAL: Filter by eventId FIRST to prevent cross-event data leakage
-        moiEntries.filter(entry => entry.eventId === event.id)
-    ), [moiEntries, event.id]);
+        return moiEntries.filter(entry => entry.eventId === eventId);
+    }, [moiEntries, eventId]);
 
     const eventSerialMap = useMemo(() => {
         const map = new Map();
@@ -963,6 +1007,10 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     };
     
     const handleSave = async (denominationData) => {
+       if (!eventId) {
+           alert('விழா தகவல் கிடைக்கவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.');
+           return;
+       }
        // CRITICAL VALIDATION: Town and Name are mandatory
        if (!formData.townId && !townInputValue) {
            alert('⚠️ ஊர் பெயர் அவசியம் தேவை! தயவுசெய்து ஊர் பெயரை உள்ளிடவும்.');
@@ -981,7 +1029,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
        }
         
     // CRITICAL: Calculate next serial number from current event's entries only
-    const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
+    const eventEntries = moiEntries.filter(entry => entry.eventId === eventId);
     const nextSerialNumber = getNextSerialNumber(eventEntries, eventSerialMap);
     const newId = formatSerialNumber(nextSerialNumber);
        const townName = towns.find(t => t.id === formData.townId)?.name || townInputValue;
@@ -1046,7 +1094,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     const newEntry = {
      id: newId,
      serialNumber: newId,
-        eventId: event.id, // CRITICAL: Add eventId for proper event isolation
+        eventId: eventId, // CRITICAL: Add eventId for proper event isolation
         table: loggedInTable,
         town: townName,
         townId: formData.townId,
@@ -1105,7 +1153,12 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             alert('à®¤à¯Šà®²à¯ˆà®ªà¯‡à®šà®¿ à®Žà®£à¯ 10 à®‡à®²à®•à¯à®• à®Žà®£à¯à®£à®¾à®• à®‡à®°à¯à®•à¯à®• à®µà¯‡à®£à¯à®Ÿà¯à®®à¯.');
             return;
         }
-        if (!formData.amount || parseFloat(formData.amount) <= 0) {
+        const expandedAmount = expandAmountShortcut(formData.amount);
+        const amountValue = expandedAmount !== formData.amount ? expandedAmount : formData.amount;
+        if (expandedAmount !== formData.amount) {
+            setFormData(prev => ({ ...prev, amount: expandedAmount }));
+        }
+        if (!amountValue || parseFloat(amountValue) <= 0) {
             alert('à®®à¯Šà®¯à¯ à®¤à¯Šà®•à¯ˆ à®ªà¯‚à®œà¯à®œà®¿à®¯à®®à®¾à®• à®‡à®°à¯à®•à¯à®•à®•à¯à®•à¯‚à®Ÿà®¾à®¤à¯. à®šà®°à®¿à®¯à®¾à®© à®¤à¯Šà®•à¯ˆà®¯à¯ˆ à®‰à®³à¯à®³à®¿à®Ÿà®µà¯à®®à¯.');
             amountInputRef.current?.focus();
             return;
@@ -1138,7 +1191,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             profession: formData.profession,
             phone: formData.phone,
             note: formData.note,
-            amount: parseFloat(formData.amount),
+            amount: parseFloat(amountValue),
             isMaternalUncle: formData.isMaternalUncle,
         };
 
@@ -1149,17 +1202,52 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         handleClearForm();
         setActiveTab('qr');
     };
+
+    const applyQrListEntryToForm = (entry) => {
+        if (!entry) return;
+        const matchedTown = towns.find(t => t.name === entry.town) || null;
+        setFormData(prev => ({
+            ...prev,
+            memberId: entry.memberId || '',
+            townId: matchedTown?.id || entry.townId || '',
+            street: entry.street || '',
+            initial: entry.initial || '',
+            name: entry.baseName || entry.name || '',
+            relationshipType: entry.relationshipType || 'son',
+            relationshipName: entry.relationshipName || '',
+            isMaternalUncle: !!entry.isMaternalUncle,
+            education: entry.education || '',
+            profession: entry.profession || '',
+            phone: entry.phone || '',
+            note: entry.note || '',
+            amount: entry.amount != null ? String(entry.amount) : ''
+        }));
+        if (entry.town) {
+            setTownInputValue(entry.town);
+            setTownShortcutHint('');
+        }
+        setMemberSearchStatus('');
+        setLastQrScanInfo(null);
+        setActiveTab('form');
+        setTimeout(() => {
+            amountInputRef.current?.focus();
+        }, 100);
+    };
     
     const handleSaveExpense = async (expenseData) => {
+        if (!eventId) {
+            alert('விழா தகவல் கிடைக்கவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.');
+            return;
+        }
         // CRITICAL: Calculate next serial number from current event's entries only
-        const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
+        const eventEntries = moiEntries.filter(entry => entry.eventId === eventId);
         const nextSerialNumber = getNextSerialNumber(eventEntries, eventSerialMap);
         const newId = formatSerialNumber(nextSerialNumber);
 
         const newExpenseEntry = {
             id: newId,
             serialNumber: newId,
-            eventId: event.id, // CRITICAL: Add eventId for proper event isolation
+            eventId: eventId, // CRITICAL: Add eventId for proper event isolation
             table: loggedInTable,
             name: 'செலவு',
             note: expenseData.reason,
@@ -1184,15 +1272,19 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         
         // Update PIN usage tracking
         if (expenseData.usedPin && updatePinUsage) {
-            await updatePinUsage(event.id, expenseData.usedPin, newId, 'expense');
+            await updatePinUsage(eventId, expenseData.usedPin, newId, 'expense');
         }
         
         setIsExpenseModalOpen(false);
     };
 
     const handleSaveChange = async (changeData) => {
+        if (!eventId) {
+            alert('விழா தகவல் கிடைக்கவில்லை. தயவுசெய்து மீண்டும் முயற்சிக்கவும்.');
+            return;
+        }
         // CRITICAL: Calculate next serial number from current event's entries only
-        const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
+        const eventEntries = moiEntries.filter(entry => entry.eventId === eventId);
         const nextSerialNumber = getNextSerialNumber(eventEntries, eventSerialMap);
         const newId = formatSerialNumber(nextSerialNumber);
 
@@ -1215,7 +1307,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         const newChangeEntry = {
             id: newId,
             serialNumber: newId,
-            eventId: event.id, // CRITICAL: Add eventId for proper event isolation
+            eventId: eventId, // CRITICAL: Add eventId for proper event isolation
             table: loggedInTable,
             name: 'சில்லறை மாற்றுதல்',
             note: `பெற்றது: ₹${changeData.totalAmount}, கொடுத்தது: ₹${changeData.totalAmount}`,
@@ -1250,7 +1342,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             return;
         }
 
-        const eventEntries = moiEntries.filter(entry => entry.eventId === event.id);
+        const eventEntries = moiEntries.filter(entry => entry.eventId === eventId);
         let nextIdNumber = getNextSerialNumber(eventEntries, eventSerialMap);
 
         const allMemberIds = moiEntries
@@ -1303,7 +1395,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             const newEntry = {
                 id: newId,
                 serialNumber: newId,
-                eventId: event.id,
+                eventId: eventId,
                 table: loggedInTable,
                 town: entryTown,
                 townId: '',
@@ -1487,7 +1579,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
             
             // Update PIN usage if PIN was used (for decreasing amounts)
             if (usedPin && updatePinUsage) {
-                await updatePinUsage(event.id, usedPin, entryId, 'edit');
+                await updatePinUsage(eventId, usedPin, entryId, 'edit');
             }
             
             try {
@@ -1505,7 +1597,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
         
         // Update PIN usage tracking
         if (usedPin && updatePinUsage) {
-            await updatePinUsage(event.id, usedPin, entryId, 'delete');
+            await updatePinUsage(eventId, usedPin, entryId, 'delete');
         }
         
         setIsDeleteModalOpen(false);
@@ -1516,7 +1608,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
     if (!event) {
         return (
              <div className="event-page">
-                 <p>Default event not set or found. Please go back and select an event in settings.</p>
+                 <p>Settings-ல் default விழா தேர்வு செய்யவில்லை அல்லது அனுமதி இல்லை. தயவுசெய்து Settings-ல் default event அமைக்கவும்.</p>
                  <button onClick={onBack}>Back</button>
             </div>
         );
@@ -1531,7 +1623,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                     <span className="icon">lan</span>
                     <span className="icon">database</span>
                     <div style={{ lineHeight: '1.3' }}>
-                        <div>விழா எண்: {event.id}</div>
+                        <div>விழா எண்: {eventId}</div>
                         <div>மேசை: {loggedInTable}</div>
                     </div>
                 </div>
@@ -1577,6 +1669,15 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </span>
                         </button>
                     </div>
+                    <button
+                        type="button"
+                        className="icon-button"
+                        aria-label="Form QR"
+                        onClick={() => setIsFormQrOpen(true)}
+                        style={{ marginRight: '6px' }}
+                    >
+                        <span className="icon">qr_code_2</span>
+                    </button>
                     <button className="icon-button" onClick={onBack} aria-label="Back">
                         <span className="icon">arrow_back</span>
                     </button>
@@ -1886,7 +1987,8 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                 display: 'flex',
                 gap: '10px',
                 marginBottom: '16px',
-                flexWrap: 'wrap'
+                flexWrap: 'wrap',
+                alignItems: 'center'
             }}>
                 <button
                     type="button"
@@ -1951,7 +2053,7 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                         <button
                             type="button"
                             className="icon-button"
-                            aria-label="QR Scan"
+                            aria-label="QR Camera"
                             onClick={() => setIsQrScanOpen(true)}
                             style={{
                                 position: 'absolute',
@@ -2260,6 +2362,20 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             placeholder=" "
                         />
                         <label>தொலைபேசி எண்</label>
+                        <button
+                            type="button"
+                            className="icon-button"
+                            aria-label="QR Camera"
+                            onClick={() => setIsQrScanOpen(true)}
+                            style={{
+                                position: 'absolute',
+                                right: '10px',
+                                top: '50%',
+                                transform: 'translateY(-50%)'
+                            }}
+                        >
+                            <span className="icon">qr_code_scanner</span>
+                        </button>
                     </div>
 
                     <div className="full-width" style={{ height: 0 }} />
@@ -2444,9 +2560,29 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
 
             {activeTab === 'qr' && (
                 <section className="event-table-container" style={{ marginTop: '2rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', gap: '10px', flexWrap: 'wrap' }}>
                         <h3 style={{ margin: 0 }}>QR List</h3>
-                        <span style={{ color: '#666', fontSize: '0.9rem' }}>{qrListEntries.length} items</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ color: '#666', fontSize: '0.9rem' }}>{qrListEntries.length} items</span>
+                            <button
+                                type="button"
+                                className="button"
+                                onClick={() => {
+                                    const selected = qrListEntries.find(item => item.id === selectedQrListId);
+                                    if (!selected) {
+                                        alert('QR list-இல் ஒரு item select செய்யவும்.');
+                                        return;
+                                    }
+                                    applyQrListEntryToForm(selected);
+                                    const nextList = qrListEntries.filter(item => item.id !== selected.id);
+                                    setQrListEntries(nextList);
+                                    persistQrList(nextList);
+                                    setSelectedQrListId(null);
+                                }}
+                            >
+                                Add
+                            </button>
+                        </div>
                     </div>
                     {qrListEntries.length === 0 ? (
                         <div style={{
@@ -2472,7 +2608,14 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                             </thead>
                             <tbody>
                                 {qrListEntries.map((entry) => (
-                                    <tr key={entry.id}>
+                                    <tr
+                                        key={entry.id}
+                                        onClick={() => setSelectedQrListId(entry.id)}
+                                        style={{
+                                            cursor: 'pointer',
+                                            backgroundColor: entry.id === selectedQrListId ? '#eef2ff' : 'transparent'
+                                        }}
+                                    >
                                         <td>
                                             <span>{formatQrTimestamp(entry.createdAt)}</span>
                                             <span className="sub-text">
@@ -3084,11 +3227,70 @@ export default function MoiFormPage({ event, loggedInTable, onBack, onLogout, on
                                 </div>
                             )}
                             <div style={{ color: '#1f2937', fontSize: '0.9rem', lineHeight: 1.5 }}>
-                                இந்த application உள்ளேயே QR scan செய்யலாம். Scan செய்தவுடன் தகவல்கள் auto‑fill ஆகும்.
-                                பிறகு தொகை மட்டும் உள்ளீடு செய்து Save செய்யுங்கள்.
+                                இந்த application உள்ளேயே QR scan செய்யலாம். Scan செய்தவுடன் form open ஆகும்.
+                                தேவையான விவரங்களை manual fill செய்து Save செய்யலாம்.
                             </div>
                             <div style={{ color: '#555', fontSize: '0.9rem' }}>
-                                QR scan செய்தவுடன் விவரங்கள் auto‑fill ஆகும்.
+                                QR scan செய்தவுடன் கிடைக்கும் தகவல்கள் auto‑fill ஆகும்.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {isFormQrOpen && (
+                <div className="modal-overlay" role="dialog" aria-modal="true" onClick={() => setIsFormQrOpen(false)}>
+                    <div className="modal-container" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '420px' }}>
+                        <div className="modal-header">
+                            <h3>Form QR</h3>
+                            <button type="button" className="icon-button" onClick={() => setIsFormQrOpen(false)} aria-label="Close">
+                                <span className="icon">close</span>
+                            </button>
+                        </div>
+                        <div className="modal-body" style={{ flexDirection: 'column', gap: '12px', alignItems: 'center' }}>
+                            <div style={{ width: '100%' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', color: '#374151', marginBottom: '6px' }}>
+                                    IP Address (optional)
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formQrHost}
+                                    onChange={(e) => setFormQrHost(e.target.value)}
+                                    placeholder="192.168.1.10:3000"
+                                    style={{
+                                        width: '100%',
+                                        padding: '8px 10px',
+                                        borderRadius: '8px',
+                                        border: '1px solid #cbd5e1'
+                                    }}
+                                />
+                            </div>
+                            {formQrDataUrl ? (
+                                <img src={formQrDataUrl} alt="Form QR" style={{ width: '100%', maxWidth: '260px' }} />
+                            ) : (
+                                <div style={{ color: '#666', fontSize: '0.9rem' }}>QR generate ஆகவில்லை</div>
+                            )}
+                            {formQrLink && (
+                                <div style={{ fontSize: '0.85rem', color: '#374151', wordBreak: 'break-all', textAlign: 'center' }}>
+                                    {formQrLink}
+                                </div>
+                            )}
+                            <button
+                                type="button"
+                                className="button button-secondary"
+                                onClick={() => {
+                                    try {
+                                        navigator.clipboard.writeText(formQrLink || '');
+                                        alert('Link copy ஆனது');
+                                    } catch (err) {
+                                        alert('Copy செய்ய முடியவில்லை');
+                                    }
+                                }}
+                            >
+                                Link Copy
+                            </button>
+                            <div style={{ color: '#555', fontSize: '0.85rem', textAlign: 'center' }}>
+                                Mobile‑ல் scan செய்தால் இந்த form page open ஆகும்.
                             </div>
                         </div>
                     </div>

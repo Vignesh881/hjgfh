@@ -83,6 +83,8 @@ export default function App() {
       initialPage = 'booking';
     } else if (window.location.pathname === '/booking-admin') {
       initialPage = 'booking-admin';
+    } else if (window.location.pathname === '/moi-form') {
+      initialPage = 'moi-form';
     }
   }
   const [page, setPage] = useState(initialPage);
@@ -101,6 +103,12 @@ export default function App() {
   
   // Load data on component mount (API first, fallback to local storage)
   useEffect(() => {
+    if (typeof window !== 'undefined' && window.location) {
+      const { protocol, hostname, port } = window.location;
+      if (port === '3000' && hostname) {
+        window.__MOIBOOK_API_URL__ = `${protocol}//${hostname}:3001/api`;
+      }
+    }
     const loadData = async () => {
       setIsLoading(true);
       const localHasData = storage.hasStoredData();
@@ -1073,7 +1081,7 @@ export default function App() {
   }
 
   if (page === 'moi-form') {
-    const defaultEvent = events.find(e => e.id === settings.defaultEventId);
+    const defaultEvent = events.find(e => e.id === settings.defaultEventId && (e.permission === true || e.permission === 'true'));
     return <MoiFormPage
         event={defaultEvent}
         loggedInTable={loggedInTable}
