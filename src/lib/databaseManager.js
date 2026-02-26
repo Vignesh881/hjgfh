@@ -21,7 +21,7 @@ class DatabaseManager {
                 return `${protocol}//${hostname}:3001/api`;
             }
         }
-        return 'https://hjgfh.onrender.com/api';
+        return 'https://hjgfh-1.onrender.com/api';
     }
 
     // Initialize cloud database connection (PlanetScale)

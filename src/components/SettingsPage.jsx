@@ -9,7 +9,7 @@ import * as storage from '../lib/localStorage';
 
 const DEFAULT_API_URL = (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_URL)
     ? process.env.REACT_APP_API_URL
-    : 'https://hjgfh.onrender.com/api';
+    : 'https://hjgfh-1.onrender.com/api';
 const DEFAULT_CLOUD_URL = (typeof process !== 'undefined' && process.env && process.env.REACT_APP_CLOUD_URL)
     ? process.env.REACT_APP_CLOUD_URL
     : DEFAULT_API_URL;
